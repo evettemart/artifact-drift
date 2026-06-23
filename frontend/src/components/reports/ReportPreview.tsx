@@ -55,6 +55,12 @@ export function ReportPreview({ report }: { report: Report | undefined }) {
             <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-200">
               {section.title}
             </h3>
+            {section.image && (
+              <div
+                className="mb-3 overflow-hidden rounded-lg border border-slate-800 [&>svg]:block [&>svg]:h-auto [&>svg]:w-full"
+                dangerouslySetInnerHTML={{ __html: section.image.svg }}
+              />
+            )}
             <SimpleMarkdown text={section.body} />
             <Citations ids={section.citations} />
           </section>

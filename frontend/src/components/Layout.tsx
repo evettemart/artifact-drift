@@ -1,7 +1,8 @@
 import { ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Activity, BarChart3, FileText, Network, Plug, TriangleAlert } from 'lucide-react';
+import { Activity, BarChart3, FileText, Network, Plug, Settings2 } from 'lucide-react';
+import { Logo } from './Logo';
 import apiClient from '../lib/api';
 
 interface LayoutProps {
@@ -10,6 +11,7 @@ interface LayoutProps {
 
 const NAV_ITEMS = [
   { path: '/', label: 'Dashboard', icon: BarChart3 },
+  { path: '/settings', label: 'Project Scans', icon: Settings2 },
   { path: '/drift', label: 'Drift', icon: Activity },
   { path: '/graph', label: 'Graph', icon: Network },
   { path: '/integrations', label: 'Integrations', icon: Plug },
@@ -40,7 +42,7 @@ export function Layout({ children }: LayoutProps) {
   const latestScan =
     Array.isArray(scansData) && scansData.length > 0 ? scansData[0] : null;
 
-  const projectName = currentProject?.name || 'Architecture Drift Copilot';
+  const projectName = currentProject?.name || 'Drifters';
   const scanLabel = latestScan
     ? `Run · ${new Date(latestScan.startedAt).toLocaleString()}`
     : 'No scans yet';
@@ -50,11 +52,9 @@ export function Layout({ children }: LayoutProps) {
       {/* Sidebar */}
       <aside className="flex w-64 flex-col bg-slate-900 text-slate-100">
         <div className="flex items-center gap-3 border-b border-slate-800 px-5 py-5">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-600">
-            <TriangleAlert className="h-5 w-5 text-white" />
-          </div>
+          <Logo size={36} className="shrink-0" />
           <div className="leading-tight">
-            <p className="text-sm font-semibold text-white">Drift Copilot</p>
+            <p className="text-sm font-semibold text-white">Drifters</p>
             <p className="text-xs text-slate-400">Architecture Governance</p>
           </div>
         </div>

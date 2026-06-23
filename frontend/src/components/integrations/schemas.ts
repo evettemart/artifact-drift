@@ -1,4 +1,4 @@
-import { Cloud, FileCode2, BookText, Workflow, Vault, Image, type LucideIcon } from 'lucide-react';
+import { Cloud, FileCode2, BookText, Workflow, Vault, Image } from 'lucide-react';
 import type { ConfigField, IntegrationKindSchema, Layer } from './types';
 
 /**

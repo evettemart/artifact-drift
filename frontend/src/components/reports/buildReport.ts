@@ -1,6 +1,7 @@
 import type { Integration, Layer } from '../integrations/types';
 import { layerLabel } from '../integrations/types';
 import type { Report, ReportFormat, ReportSection } from './types';
+import { renderGraphSvg } from './graphImage';
 
 // --- Backend shapes (subset we consume) ----------------------------------
 
@@ -176,6 +177,7 @@ function buildGraphSections(input: BuildReportInput, layers: Array<keyof GraphDa
       title: `${GRAPH_LABELS[layerKey]} Graph`,
       body: lines.join('\n'),
       citations: [],
+      image: renderGraphSvg(layer) ?? undefined,
     };
   });
 }

@@ -14,6 +14,8 @@ interface ProjectOption {
 
 interface ScanOption {
   scanId: string;
+  startedAt?: string;
+  status?: string;
 }
 
 const CATEGORIES: { value: DriftCategory; label: string }[] = [
@@ -39,6 +41,11 @@ function toggle<T>(list: T[], value: T): T[] {
 
 const SELECT_CLS =
   'rounded-md border border-slate-700 bg-slate-800 px-3 py-1.5 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-500/40';
+
+function scanLabel(scan: ScanOption, index: number): string {
+  const time = scan.startedAt ? new Date(scan.startedAt).toLocaleString() : scan.scanId;
+  return index === 0 ? `Latest · ${time}` : time;
+}
 
 export function DriftFilters({
   projects,
@@ -90,9 +97,9 @@ export function DriftFilters({
             onChange={(e) => onScanChange(e.target.value)}
             className={SELECT_CLS}
           >
-            {scans.map((scan) => (
+            {scans.map((scan, index) => (
               <option key={scan.scanId} value={scan.scanId}>
-                {scan.scanId}
+                {scanLabel(scan, index)}
               </option>
             ))}
           </select>
@@ -105,6 +112,7 @@ export function DriftFilters({
             onChange={(e) => onRunChange(e.target.value)}
             className={SELECT_CLS}
           >
+            <option value="">All comparisons</option>
             {runs.map((run) => (
               <option key={run.id} value={run.id}>
                 {run.label}
