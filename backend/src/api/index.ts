@@ -350,7 +350,25 @@ router.get('/health', (_req: Request, res: Response) => {
 router.get('/projects', async (_req: Request, res: Response) => {
   try {
     const allProjects = await db.select().from(projects);
-    res.json(allProjects);
+    if (allProjects.length > 0) {
+      res.json(allProjects);
+      return;
+    }
+    // Fall back to a synthesized demo project so the UI (Reports, Settings)
+    // stays consistent with the generated scan/findings/graph artifacts, which
+    // reference this projectId even when the projects table has not been seeded.
+    const now = new Date().toISOString();
+    res.json([
+      {
+        id: 1,
+        projectId: getLatestArtifacts().scan.projectId,
+        name: 'Demo Infrastructure Project',
+        description: 'Sample project demonstrating architecture drift detection',
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
   } catch (error) {
     console.error('Error in projects endpoint:', error);
     res.status(500).json({ error: 'Failed to fetch projects' });

@@ -56,7 +56,7 @@ app.use((req: Request, res: Response) => {
 app.listen(PORT, () => {
   console.log(`
 ╔════════════════════════════════════════════════════════════╗
-║  Architecture Drift Copilot - Backend API                  ║
+║  Drifters - Backend API                                    ║
 ╠════════════════════════════════════════════════════════════╣
 ║  Server running on: http://localhost:${PORT}                   ║
 ║  Mode: ${DEMO_MODE ? 'DEMO (using mock data)' : 'PRODUCTION'}                        ║

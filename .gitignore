@@ -4,6 +4,7 @@ node_modules/
 # Build output
 dist/
 build/
+*.tsbuildinfo
 
 # Local SQLite database + WAL/SHM sidecars (keep data/mock/*.json)
 backend/data/*.db

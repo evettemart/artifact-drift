@@ -19,18 +19,18 @@ export function ResourceNode({ data }: NodeProps<ResourceNodeData>) {
 
   return (
     <div
-      className="flex w-[180px] items-center gap-2.5 rounded-lg border-2 bg-slate-800 px-3 py-2.5 shadow-lg"
+      className="flex w-[160px] items-center gap-2 rounded-lg border-2 bg-slate-800 px-2.5 py-2 shadow-lg"
       style={{ borderColor }}
     >
       <Handle type="target" position={Position.Left} className="!h-2 !w-2 !border-0 !bg-slate-500" />
 
-      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-sky-500/15 text-sky-300">
-        <Icon className="h-4 w-4" />
+      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-sky-500/15 text-sky-300">
+        <Icon className="h-3.5 w-3.5" />
       </div>
 
       <div className="min-w-0 flex-1">
-        <div className="truncate text-sm font-semibold text-slate-100">{data.name}</div>
-        <div className="truncate text-[11px] text-slate-400">{meta.label}</div>
+        <div className="truncate text-xs font-semibold text-slate-100">{data.name}</div>
+        <div className="truncate text-[10px] text-slate-400">{meta.label}</div>
       </div>
 
       {sev && (

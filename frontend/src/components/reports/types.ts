@@ -3,12 +3,21 @@ import { FileCode2, FileJson, FileText, type LucideIcon } from 'lucide-react';
 export type ReportFormat = 'html' | 'pdf' | 'json';
 export type ReportStatus = 'ready' | 'generating' | 'failed';
 
+export interface GraphImage {
+  /** Self-contained SVG markup for the graph diagram. */
+  svg: string;
+  width: number;
+  height: number;
+}
+
 export interface ReportSection {
   id: string;
   title: string;
   /** Limited markdown: **bold**, `code`, and "- " bullet lines. */
   body: string;
   citations: string[];
+  /** Optional rendered graph diagram (present on graph sections). */
+  image?: GraphImage;
 }
 
 export interface Report {

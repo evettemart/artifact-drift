@@ -8,6 +8,7 @@ import { DriftTable } from '../components/drift/DriftTable';
 import { DriftDetailDrawer } from '../components/drift/DriftDetailDrawer';
 import apiClient from '../lib/api';
 import type {
+  DriftCategory,
   DriftFilterState,
   DriftFinding,
   DriftRun,
@@ -21,6 +22,8 @@ interface ProjectRow {
 }
 interface ScanRow {
   scanId: string;
+  startedAt?: string;
+  status?: string;
 }
 
 const EMPTY_FILTERS: DriftFilterState = {
@@ -70,15 +73,21 @@ export function DriftPage() {
   useEffect(() => {
     if (!scanId && scans.length) setScanId(scans[0].scanId);
   }, [scanId, scans]);
-  useEffect(() => {
-    if (!runId && runs.length) setRunId(runs[0].id);
-  }, [runId, runs]);
-
-  // Seed the severity filter from a ?severity= deep link (dashboard cards).
+  // Seed severity/category filters from ?severity= / ?category= deep links
+  // (dashboard stat cards and the drift-by-type chart).
   useEffect(() => {
     if (deepLinkApplied) return;
     const sev = searchParams.get('severity') as Severity | null;
-    if (sev) setFilters((f) => ({ ...f, severity: [sev] }));
+    const cat = searchParams.get('category') as DriftCategory | null;
+    const rid = searchParams.get('runId');
+    if (sev || cat) {
+      setFilters((f) => ({
+        ...f,
+        severity: sev ? [sev] : f.severity,
+        category: cat ? [cat] : f.category,
+      }));
+    }
+    if (rid) setRunId(rid);
     setDeepLinkApplied(true);
   }, [searchParams, deepLinkApplied]);
 
@@ -165,7 +174,7 @@ export function DriftPage() {
 
       <div className="mt-5 text-xs text-slate-500">
         Showing {visible.length} of {decorated.filter((f) => !runId || f.runId === runId).length} drift
-        records for this run.
+        records {runId ? 'for this comparison' : 'across all comparisons'}.
       </div>
 
       <div className="mt-2">
