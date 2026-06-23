@@ -18,6 +18,9 @@ The hackathon theme is Agentic AI, but the core story stays centered on **HashiC
 4. **Local files first.** Read `architecture.yaml`, Terraform JSON, and AWS mock inventory from disk. Confluence/HCP/Slack are placeholder connectors only.
 5. **Reports are generated on the fly and never stored.** Store findings and run metadata in SQLite; regenerate report artifacts (PDF/HTML/JSON) on request.
 6. **Deterministic where accuracy matters.** Drift *detection* is deterministic code. The LLM is used *only after* detection, for explanation/severity narrative/remediation prose. If no LLM key is present, degrade to a deterministic template summary.
+7. **Two explicit modes, identical UI.** The app runs in **Mock Mode** (`DEMO_MODE=true`, default) or **Live Mode** (`DEMO_MODE=false`), and both expose the exact same screens and full feature set.
+   - **Mock Mode uses pre-generated mock data only** — no AWS SDK calls, no LLM calls, no Terraform CLI, no network dependencies. All functionality (dashboard, findings, graph, reports, filtering, download) must remain visible and fully working.
+   - **Live Mode** reads the real `architecture.yaml`, Terraform JSON, and AWS read-only inventory (with automatic mock-inventory fallback), and uses the LLM when a key is present. Switching modes changes only the data source, never the available features.
 
 ---
 

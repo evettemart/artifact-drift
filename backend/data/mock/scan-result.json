@@ -4,14 +4,14 @@
   "startedAt": "2026-06-23T10:00:00Z",
   "completedAt": "2026-06-23T10:00:05Z",
   "durationMs": 5432,
-  "complianceScore": 68,
+  "complianceScore": 57,
   "status": "completed",
   "statistics": {
     "totalFindings": 8,
     "bySeverity": {
       "critical": 0,
-      "high": 2,
-      "medium": 4,
+      "high": 3,
+      "medium": 3,
       "low": 1,
       "info": 1
     },

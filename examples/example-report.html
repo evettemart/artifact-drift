@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Architecture Drift Report</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 40px; background: #f5f5f5; }
+    .container { max-width: 1200px; margin: 0 auto; background: white; padding: 40px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    h1 { color: #333; border-bottom: 3px solid #4CAF50; padding-bottom: 10px; }
+    h2 { color: #555; margin-top: 30px; }
+    .meta { color: #777; font-size: 13px; }
+    .badge { display: inline-block; padding: 2px 10px; border-radius: 10px; font-size: 12px; background: #eee; color: #555; }
+    .score { font-size: 48px; font-weight: bold; color: #4CAF50; }
+    .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin: 20px 0; }
+    .stat-card { background: #f9f9f9; padding: 20px; border-radius: 4px; text-align: center; }
+    .stat-value { font-size: 32px; font-weight: bold; color: #333; }
+    .stat-label { color: #666; margin-top: 5px; }
+    .finding { background: #fff; border-left: 4px solid #ff9800; padding: 15px; margin: 10px 0; border-radius: 4px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+    .finding.critical { border-left-color: #f44336; }
+    .finding.high { border-left-color: #ff9800; }
+    .finding.medium { border-left-color: #ffc107; }
+    .finding.low { border-left-color: #4caf50; }
+    .finding.info { border-left-color: #2196f3; }
+    .severity { display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: bold; text-transform: uppercase; }
+    .severity.critical { background: #f44336; color: white; }
+    .severity.high { background: #ff9800; color: white; }
+    .severity.medium { background: #ffc107; color: black; }
+    .severity.low { background: #4caf50; color: white; }
+    .severity.info { background: #2196f3; color: white; }
+    .analysis { margin-top: 10px; padding: 10px; background: #f5f5f5; border-radius: 4px; }
+    .analysis p { margin: 6px 0; }
+    code { background: #eef; padding: 1px 5px; border-radius: 3px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Architecture Drift Report</h1>
+    <p class="meta">Generated: 2026-06-23T10:00:05Z &nbsp;|&nbsp; Scan: scan-mock-2026-06-23 &nbsp;|&nbsp; <span class="badge">MOCK MODE</span></p>
+    <p class="meta">Sources: examples/architecture.yaml (intent) &middot; examples/terraform-state.json (terraform) &middot; examples/aws-mock-inventory.json (aws) &middot; Reasoning: deterministic</p>
+
+    <h2>Executive Summary</h2>
+    <div class="score">Compliance Score: 57/100</div>
+
+    <div class="stats">
+      <div class="stat-card"><div class="stat-value">8</div><div class="stat-label">Total Findings</div></div>
+      <div class="stat-card"><div class="stat-value">0</div><div class="stat-label">Critical</div></div>
+      <div class="stat-card"><div class="stat-value">3</div><div class="stat-label">High</div></div>
+      <div class="stat-card"><div class="stat-value">3</div><div class="stat-label">Medium</div></div>
+    </div>
+
+    <h2>Findings</h2>
+
+    <div class="finding high">
+      <div><span class="severity high">high</span> <strong>missing</strong> &mdash; subnet (private-subnet-1b)</div>
+      <p>Subnet 'private-subnet-1b' (10.0.2.0/24) defined in architecture and Terraform but not found in AWS</p>
+      <div class="analysis">
+        <p><strong>Analysis:</strong> Private subnet missing from AWS deployment</p>
+        <p><strong>Likely cause:</strong> Subnet was defined in Terraform but never applied, or was manually deleted from AWS console</p>
+        <p><strong>Remediation:</strong> Run <code>terraform apply</code> to create the missing subnet.</p>
+      </div>
+    </div>
+
+    <div class="finding medium">
+      <div><span class="severity medium">medium</span> <strong>unmanaged</strong> &mdash; security_group (debug-sg)</div>
+      <p>Security group 'debug-sg' exists in AWS but is not managed by Terraform</p>
+      <div class="analysis">
+        <p><strong>Analysis:</strong> Unmanaged security group found in AWS</p>
+        <p><strong>Likely cause:</strong> Created manually in AWS console for debugging and never added to Terraform</p>
+        <p><strong>Remediation:</strong> Import into Terraform with <code>terraform import</code>, or remove if no longer needed.</p>
+      </div>
+    </div>
+
+    <div class="finding high">
+      <div><span class="severity high">high</span> <strong>changed_outside_terraform</strong> &mdash; security_group (web-sg)</div>
+      <p>Security group 'web-sg' has port 22 (SSH) open to 0.0.0.0/0, which is not defined in Terraform</p>
+      <div class="analysis">
+        <p><strong>Analysis:</strong> SSH port opened manually, creating security risk</p>
+        <p><strong>Likely cause:</strong> Administrator opened SSH for debugging and forgot to close it or add to Terraform</p>
+        <p><strong>Remediation:</strong> Run <code>terraform apply</code> to remove the SSH rule, or add it with a restricted internal CIDR.</p>
+      </div>
+    </div>
+
+    <div class="finding medium">
+      <div><span class="severity medium">medium</span> <strong>attribute_mismatch</strong> &mdash; ec2_instance (web-server)</div>
+      <p>Instance type mismatch: intent=t3.medium, terraform=t3.small, aws=t3.large</p>
+      <div class="analysis">
+        <p><strong>Analysis:</strong> EC2 instance type differs across all three sources</p>
+        <p><strong>Likely cause:</strong> Resized manually in AWS (t3.large) while Terraform shows t3.small and intent specifies t3.medium</p>
+        <p><strong>Remediation:</strong> Update Terraform to match intent (t3.medium) and apply.</p>
+      </div>
+    </div>
+
+    <div class="finding low">
+      <div><span class="severity low">low</span> <strong>tag_mismatch</strong> &mdash; vpc (main-vpc)</div>
+      <p>VPC missing 'Environment' tag in AWS (present in intent and Terraform)</p>
+      <div class="analysis">
+        <p><strong>Analysis:</strong> Environment tag removed from VPC</p>
+        <p><strong>Likely cause:</strong> Tag manually removed in AWS console or CLI</p>
+        <p><strong>Remediation:</strong> Run <code>terraform apply</code> to restore the missing tag.</p>
+      </div>
+    </div>
+
+    <div class="finding medium">
+      <div><span class="severity medium">medium</span> <strong>configuration_drift</strong> &mdash; alb (web-alb)</div>
+      <p>Load balancer idle timeout changed from 60s to 120s</p>
+      <div class="analysis">
+        <p><strong>Analysis:</strong> ALB idle timeout configuration drifted</p>
+        <p><strong>Likely cause:</strong> Timeout increased manually to handle long-running requests</p>
+        <p><strong>Remediation:</strong> Update Terraform to match current config or revert to the original idle timeout.</p>
+      </div>
+    </div>
+
+    <div class="finding high">
+      <div><span class="severity high">high</span> <strong>relationship_broken</strong> &mdash; subnet (database-subnet-1c)</div>
+      <p>Database subnet not associated with private route table as specified in architecture</p>
+      <div class="analysis">
+        <p><strong>Analysis:</strong> Subnet routing relationship broken</p>
+        <p><strong>Likely cause:</strong> Route table association removed or never created</p>
+        <p><strong>Remediation:</strong> Create the missing <code>aws_route_table_association</code> for the database subnet.</p>
+      </div>
+    </div>
+
+    <div class="finding info">
+      <div><span class="severity info">info</span> <strong>version_mismatch</strong> &mdash; provider (hashicorp/aws)</div>
+      <p>Terraform AWS provider version in state (1.5.0) may differ from current version</p>
+      <div class="analysis">
+        <p><strong>Analysis:</strong> Provider version tracking</p>
+        <p><strong>Likely cause:</strong> Informational - tracking provider version used</p>
+        <p><strong>Remediation:</strong> Pin the AWS provider version in the <code>required_providers</code> block.</p>
+      </div>
+    </div>
+
+  </div>
+</body>
+</html>

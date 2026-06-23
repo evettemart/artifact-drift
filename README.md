@@ -2,6 +2,22 @@
 
 An AI-powered tool for detecting and analyzing drift between intended architecture, Terraform state, and deployed AWS infrastructure.
 
+> **Current status:** The application is **mock-backed** today — all screens and features are fully functional using pre-generated mock data. Real agent implementations (live AWS/Terraform/LLM) are in progress; see `STATUS.md`.
+
+## Operating Modes
+
+The app runs in one of two modes, set by the backend `DEMO_MODE` environment variable. **Both modes expose the same UI and the same full feature set** — only the data source changes.
+
+| | Mock Mode (`DEMO_MODE=true`, default) | Live Mode (`DEMO_MODE=false`) |
+|---|---|---|
+| **Data source** | Pre-generated mock data **only** | Real `architecture.yaml`, `terraform show -json`, AWS read-only SDK |
+| **External calls** | None (no AWS, no LLM, no Terraform CLI) | AWS read-only APIs + optional Anthropic API |
+| **Reasoning** | Deterministic templates | Anthropic API when key set, else deterministic |
+| **Functionality** | **Everything visible and working** | Identical feature set |
+| **Fallbacks** | n/a | Auto mock-inventory fallback when no AWS creds |
+
+In **mock mode**, no feature is hidden, disabled, or stubbed — dashboard, findings, graph, reports, filtering, and download all work without any credentials or API keys.
+
 ## 🚀 Quick Start
 
 ### Prerequisites
@@ -24,9 +40,9 @@ npm install
 pnpm install
 ```
 
-### Running in Demo Mode
+### Running in Mock Mode (Demo)
 
-The easiest way to get started is with demo mode, which uses pre-generated mock data:
+The easiest way to get started is mock mode, which uses pre-generated mock data only — no AWS credentials or API keys required, and every feature is fully functional:
 
 ```bash
 # Terminal 1: Start backend in demo mode
@@ -58,6 +74,18 @@ To analyze real infrastructure:
    - Or let the tool fetch AWS inventory automatically
 
 4. **Start the servers** (same as demo mode, but with `DEMO_MODE=false`)
+
+## 🎬 Demo Script
+
+A suggested 7-step walkthrough for demos (works end to end in mock mode):
+
+1. **Show the approved architecture.** Open `examples/architecture.yaml` and describe the intended design (VPC, subnets, security groups, EC2, ALB, tags).
+2. **Show the Terraform state.** Open `examples/terraform-state.json` — what Terraform believes it manages.
+3. **Show the AWS runtime.** Open `examples/aws-mock-inventory.json` — what is actually deployed.
+4. **Run the analysis.** On the Dashboard, click **Run Scan**. The compliance score and statistics populate immediately.
+5. **Show Terraform and AWS diverging from the approved design.** Walk the Findings list and Graph view (Planned / Terraform / Deployed) to highlight the 8 drift types — e.g. a missing subnet, an unmanaged `debug-sg`, SSH opened outside Terraform on `web-sg`, and instance-type mismatch on `web-server`.
+6. **Generate a report.** Open the Reports page, select HTML or JSON, preview, and download. (A pre-generated sample lives at `examples/example-report.html` and `examples/example-report.json`.)
+7. **Explain future integrations.** Note the placeholder connectors for Confluence, HCP Terraform, AWS, and Slack, and how live mode swaps mock data for real sources without changing the UI.
 
 ## 📋 Features
 

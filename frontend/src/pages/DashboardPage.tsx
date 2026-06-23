@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { Activity, AlertTriangle, CheckCircle, Clock, Play } from 'lucide-react';
@@ -24,6 +25,7 @@ const DRIFT_TYPE_COLORS = [
 
 export function DashboardPage() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [isRunning, setIsRunning] = useState(false);
 
   // Fetch projects
@@ -66,6 +68,16 @@ export function DashboardPage() {
     enabled: !!(Array.isArray(scansData) && scansData.length > 0),
   });
 
+  // Fetch resources (grouped by source)
+  const { data: resourcesData } = useQuery({
+    queryKey: ['resources'],
+    queryFn: async () => {
+      const response = await apiClient.getResources();
+      return response.data;
+    },
+    enabled: !!(Array.isArray(scansData) && scansData.length > 0),
+  });
+
   // Run analysis mutation
   const runAnalysisMutation = useMutation({
     mutationFn: () => apiClient.runAnalysis(),
@@ -75,6 +87,7 @@ export function DashboardPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['scans'] });
       queryClient.invalidateQueries({ queryKey: ['findings'] });
+      queryClient.invalidateQueries({ queryKey: ['resources'] });
       setTimeout(() => setIsRunning(false), 1000);
     },
     onError: () => {
@@ -84,6 +97,13 @@ export function DashboardPage() {
 
   const latestScan = Array.isArray(scansData) ? scansData[0] : null;
   const findings = findingsData?.findings || [];
+
+  // Resource counts by source
+  const resourceCounts = {
+    intent: Array.isArray(resourcesData?.intentResources) ? resourcesData.intentResources.length : 0,
+    terraform: Array.isArray(resourcesData?.terraformResources) ? resourcesData.terraformResources.length : 0,
+    aws: Array.isArray(resourcesData?.awsResources) ? resourcesData.awsResources.length : 0,
+  };
 
   // Calculate statistics
   const stats = {
@@ -222,28 +242,51 @@ export function DashboardPage() {
           {/* Statistics Cards */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             <StatCard
-              title="Total Findings"
+              title="Total Drifts"
               value={stats.totalFindings}
               icon={Activity}
+              onClick={() => navigate('/drift')}
             />
             <StatCard
               title="Critical"
               value={stats.bySeverity.critical || 0}
               icon={AlertTriangle}
               className="border-red-200"
+              onClick={() => navigate('/drift?severity=critical')}
             />
             <StatCard
               title="High"
               value={stats.bySeverity.high || 0}
               icon={AlertTriangle}
               className="border-orange-200"
+              onClick={() => navigate('/drift?severity=high')}
             />
             <StatCard
               title="Medium"
               value={stats.bySeverity.medium || 0}
               icon={CheckCircle}
               className="border-yellow-200"
+              onClick={() => navigate('/drift?severity=medium')}
             />
+          </div>
+
+          {/* Resource Summary */}
+          <div className="bg-white rounded-lg border border-gray-200 p-6">
+            <h3 className="text-lg font-medium text-gray-900 mb-4">Resource Summary</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="border border-gray-200 rounded-lg p-4 text-center">
+                <div className="text-3xl font-bold text-gray-900">{resourceCounts.intent}</div>
+                <div className="mt-1 text-sm text-gray-500">Architecture Intent</div>
+              </div>
+              <div className="border border-gray-200 rounded-lg p-4 text-center">
+                <div className="text-3xl font-bold text-gray-900">{resourceCounts.terraform}</div>
+                <div className="mt-1 text-sm text-gray-500">Terraform State</div>
+              </div>
+              <div className="border border-gray-200 rounded-lg p-4 text-center">
+                <div className="text-3xl font-bold text-gray-900">{resourceCounts.aws}</div>
+                <div className="mt-1 text-sm text-gray-500">AWS Deployed</div>
+              </div>
+            </div>
           </div>
 
           {/* Charts */}
@@ -251,7 +294,7 @@ export function DashboardPage() {
             {/* Severity Distribution */}
             <div className="bg-white rounded-lg border border-gray-200 p-6">
               <h3 className="text-lg font-medium text-gray-900 mb-4">
-                Findings by Severity
+                Drift by Severity
               </h3>
               {severityChartData.length > 0 ? (
                 <ResponsiveContainer width="100%" height={300}>
@@ -273,7 +316,7 @@ export function DashboardPage() {
             {/* Drift Type Distribution */}
             <div className="bg-white rounded-lg border border-gray-200 p-6">
               <h3 className="text-lg font-medium text-gray-900 mb-4">
-                Findings by Type
+                Drift by Type
               </h3>
               {typeChartData.length > 0 ? (
                 <ResponsiveContainer width="100%" height={300}>
@@ -305,19 +348,29 @@ export function DashboardPage() {
 
           {/* Recent Findings */}
           <div className="bg-white rounded-lg border border-gray-200">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h3 className="text-lg font-medium text-gray-900">Recent Findings</h3>
+            <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+              <h3 className="text-lg font-medium text-gray-900">Recent Drifts</h3>
+              <button
+                onClick={() => navigate('/drift')}
+                className="text-sm font-medium text-blue-600 hover:text-blue-700"
+              >
+                View all
+              </button>
             </div>
             <div className="divide-y divide-gray-200">
               {findingsLoading ? (
-                <LoadingState message="Loading findings..." />
+                <LoadingState message="Loading drift..." />
               ) : findings.length === 0 ? (
                 <div className="px-6 py-8 text-center text-gray-500">
-                  No findings detected
+                  No drift detected
                 </div>
               ) : (
                 findings.slice(0, 5).map((finding: any) => (
-                  <div key={finding.driftId} className="px-6 py-4 hover:bg-gray-50">
+                  <div
+                    key={finding.driftId}
+                    onClick={() => navigate(`/drift?severity=${finding.severity}`)}
+                    className="px-6 py-4 hover:bg-gray-50 cursor-pointer"
+                  >
                     <div className="flex items-center justify-between">
                       <div className="flex-1">
                         <div className="flex items-center space-x-2">
