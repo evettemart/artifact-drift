@@ -26,6 +26,27 @@ export function DashboardPage() {
   const queryClient = useQueryClient();
   const [isRunning, setIsRunning] = useState(false);
 
+  // Fetch projects
+  const { data: projectsData, isLoading: projectsLoading } = useQuery({
+    queryKey: ['projects'],
+    queryFn: async () => {
+      const response = await apiClient.getProjects();
+      return response.data;
+    },
+  });
+
+  const currentProject = Array.isArray(projectsData) && projectsData.length > 0 ? projectsData[0] : null;
+
+  // Fetch integrations for current project
+  const { data: integrationsData } = useQuery({
+    queryKey: ['integrations', currentProject?.projectId],
+    queryFn: async () => {
+      const response = await apiClient.getIntegrations({ projectId: currentProject?.projectId });
+      return response.data;
+    },
+    enabled: !!currentProject,
+  });
+
   // Fetch latest scan
   const { data: scansData, isLoading: scansLoading, error: scansError } = useQuery({
     queryKey: ['scans'],
@@ -42,7 +63,7 @@ export function DashboardPage() {
       const response = await apiClient.getFindings();
       return response.data;
     },
-    enabled: !!scansData?.scans?.[0],
+    enabled: !!(Array.isArray(scansData) && scansData.length > 0),
   });
 
   // Run analysis mutation
@@ -61,7 +82,7 @@ export function DashboardPage() {
     },
   });
 
-  const latestScan = scansData?.scans?.[0];
+  const latestScan = Array.isArray(scansData) ? scansData[0] : null;
   const findings = findingsData?.findings || [];
 
   // Calculate statistics
@@ -90,7 +111,7 @@ export function DashboardPage() {
     fill: DRIFT_TYPE_COLORS[index % DRIFT_TYPE_COLORS.length],
   }));
 
-  if (scansLoading) {
+  if (scansLoading || projectsLoading) {
     return <LoadingState message="Loading dashboard..." />;
   }
 
@@ -103,6 +124,8 @@ export function DashboardPage() {
     );
   }
 
+  const integrations = Array.isArray(integrationsData) ? integrationsData : [];
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -110,7 +133,7 @@ export function DashboardPage() {
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
           <p className="mt-1 text-sm text-gray-500">
-            Overview of architecture drift analysis
+            {currentProject ? currentProject.name : 'Overview of architecture drift analysis'}
           </p>
         </div>
         <button
@@ -131,6 +154,44 @@ export function DashboardPage() {
           )}
         </button>
       </div>
+
+      {/* Project & Integrations Info */}
+      {currentProject && (
+        <div className="bg-white rounded-lg border border-gray-200 p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-medium text-gray-900">Project & Integrations</h2>
+            <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+              currentProject.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+            }`}>
+              {currentProject.status}
+            </span>
+          </div>
+          
+          {currentProject.description && (
+            <p className="text-sm text-gray-600 mb-4">{currentProject.description}</p>
+          )}
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {integrations.map((integration: any) => (
+              <div key={integration.integrationId} className="border border-gray-200 rounded-lg p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="font-medium text-gray-900">{integration.name}</h3>
+                  <span className={`px-2 py-1 rounded text-xs font-medium ${
+                    integration.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'
+                  }`}>
+                    {integration.type}
+                  </span>
+                </div>
+                {integration.lastSyncAt && (
+                  <p className="text-xs text-gray-500">
+                    Last sync: {new Date(integration.lastSyncAt).toLocaleString()}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {!latestScan ? (
         <EmptyState

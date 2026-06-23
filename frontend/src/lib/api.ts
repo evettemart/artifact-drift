@@ -21,6 +21,14 @@ export const apiClient = {
   // Health check
   health: () => api.get('/health'),
 
+  // Projects
+  getProjects: () => api.get('/projects'),
+  getProject: (projectId: string) => api.get(`/projects/${projectId}`),
+
+  // Integrations
+  getIntegrations: (params?: { projectId?: string }) =>
+    api.get('/integrations', { params }),
+
   // Analysis
   runAnalysis: () => api.post('/analyze'),
 

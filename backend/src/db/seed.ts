@@ -1,7 +1,7 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { db } from './index';
-import { findings, scans } from './schema';
+import { findings, scans, projects, integrations } from './schema';
 import type { DriftFinding, ScanResult } from '../types/shared';
 
 interface FindingsPayload {
@@ -20,8 +20,75 @@ export function seedMockData(): void {
   const scanResult = readJsonFile<ScanResult>('data/mock/scan-result.json');
   const findingsPayload = readJsonFile<FindingsPayload>('data/mock/findings.json');
 
+  // Clear existing data
   db.delete(findings).run();
   db.delete(scans).run();
+  db.delete(integrations).run();
+  db.delete(projects).run();
+
+  // Seed project
+  db.insert(projects)
+    .values({
+      projectId: 'demo-project',
+      name: 'Demo Infrastructure Project',
+      description: 'Sample project demonstrating architecture drift detection',
+      status: 'active',
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+
+  // Seed integrations
+  db.insert(integrations)
+    .values([
+      {
+        integrationId: 'int-terraform-1',
+        projectId: 'demo-project',
+        name: 'Terraform State',
+        type: 'terraform',
+        status: 'active',
+        configJson: JSON.stringify({
+          backend: 's3',
+          bucket: 'demo-terraform-state',
+          region: 'us-east-1',
+        }),
+        credentialsJson: null,
+        lastSyncAt: now,
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        integrationId: 'int-aws-1',
+        projectId: 'demo-project',
+        name: 'AWS Account',
+        type: 'aws',
+        status: 'active',
+        configJson: JSON.stringify({
+          region: 'us-east-1',
+          accountId: '123456789012',
+        }),
+        credentialsJson: null,
+        lastSyncAt: now,
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        integrationId: 'int-arch-1',
+        projectId: 'demo-project',
+        name: 'Architecture Design',
+        type: 'architecture',
+        status: 'active',
+        configJson: JSON.stringify({
+          source: 'yaml',
+          path: 'examples/architecture.yaml',
+        }),
+        credentialsJson: null,
+        lastSyncAt: now,
+        createdAt: now,
+        updatedAt: now,
+      },
+    ])
+    .run();
 
   db.insert(scans)
     .values({

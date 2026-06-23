@@ -1,6 +1,6 @@
 import express, { Request, Response } from 'express';
 import { db } from '../db';
-import { scans, findings, resources } from '../db/schema';
+import { scans, findings, resources, projects, integrations } from '../db/schema';
 import { eq } from 'drizzle-orm';
 import fs from 'fs/promises';
 import path from 'path';
@@ -10,6 +10,59 @@ const router = express.Router();
 // Health check endpoint
 router.get('/health', (req: Request, res: Response) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// Get all projects
+router.get('/projects', async (req: Request, res: Response) => {
+  try {
+    const allProjects = await db.select().from(projects);
+    res.json(allProjects);
+  } catch (error) {
+    console.error('Error in projects endpoint:', error);
+    res.status(500).json({ error: 'Failed to fetch projects' });
+  }
+});
+
+// Get project by ID
+router.get('/projects/:projectId', async (req: Request, res: Response) => {
+  try {
+    const { projectId } = req.params;
+    const project = await db
+      .select()
+      .from(projects)
+      .where(eq(projects.projectId, projectId))
+      .limit(1);
+    
+    if (project.length === 0) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+    
+    res.json(project[0]);
+  } catch (error) {
+    console.error('Error in project endpoint:', error);
+    res.status(500).json({ error: 'Failed to fetch project' });
+  }
+});
+
+// Get integrations for a project
+router.get('/integrations', async (req: Request, res: Response) => {
+  try {
+    const { projectId } = req.query;
+    
+    if (projectId) {
+      const projectIntegrations = await db
+        .select()
+        .from(integrations)
+        .where(eq(integrations.projectId, projectId as string));
+      res.json(projectIntegrations);
+    } else {
+      const allIntegrations = await db.select().from(integrations);
+      res.json(allIntegrations);
+    }
+  } catch (error) {
+    console.error('Error in integrations endpoint:', error);
+    res.status(500).json({ error: 'Failed to fetch integrations' });
+  }
 });
 
 // Run analysis (mock mode)
