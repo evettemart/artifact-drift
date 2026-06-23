@@ -1,0 +1,59 @@
+{
+  "scanId": "scan-mock-2026-06-23",
+  "projectId": "default",
+  "startedAt": "2026-06-23T10:00:00Z",
+  "completedAt": "2026-06-23T10:00:05Z",
+  "durationMs": 5432,
+  "complianceScore": 68,
+  "status": "completed",
+  "statistics": {
+    "totalFindings": 8,
+    "bySeverity": {
+      "critical": 0,
+      "high": 2,
+      "medium": 4,
+      "low": 1,
+      "info": 1
+    },
+    "byType": {
+      "missing": 1,
+      "unmanaged": 1,
+      "changed_outside_terraform": 1,
+      "attribute_mismatch": 1,
+      "tag_mismatch": 1,
+      "configuration_drift": 1,
+      "relationship_broken": 1,
+      "version_mismatch": 1
+    },
+    "byStatus": {
+      "open": 8,
+      "acknowledged": 0,
+      "resolved": 0,
+      "suppressed": 0
+    }
+  },
+  "sources": {
+    "intent": {
+      "type": "yaml",
+      "path": "examples/architecture.yaml",
+      "resourceCount": 8
+    },
+    "terraform": {
+      "type": "state",
+      "path": "examples/terraform-state.json",
+      "resourceCount": 7,
+      "version": "1.5.0"
+    },
+    "aws": {
+      "type": "mock",
+      "path": "examples/aws-mock-inventory.json",
+      "resourceCount": 7,
+      "region": "us-east-1"
+    }
+  },
+  "config": {
+    "enableLLMReasoning": false,
+    "regions": ["us-east-1"],
+    "detectUnmanaged": true
+  }
+}

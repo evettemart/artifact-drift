@@ -1,0 +1,172 @@
+{
+  "metadata": {
+    "source": "mock",
+    "region": "us-east-1",
+    "timestamp": "2026-06-23T10:00:00Z",
+    "account_id": "123456789012"
+  },
+  "vpcs": [
+    {
+      "VpcId": "vpc-0a1b2c3d4e5f6g7h8",
+      "CidrBlock": "10.0.0.0/16",
+      "State": "available",
+      "EnableDnsHostnames": true,
+      "EnableDnsSupport": true,
+      "Tags": [
+        { "Key": "Name", "Value": "main-vpc" },
+        { "Key": "ManagedBy", "Value": "terraform" },
+        { "Key": "Project", "Value": "web-app" }
+      ]
+    }
+  ],
+  "subnets": [
+    {
+      "SubnetId": "subnet-0a1b2c3d4e5f6g7h8",
+      "VpcId": "vpc-0a1b2c3d4e5f6g7h8",
+      "CidrBlock": "10.0.1.0/24",
+      "AvailabilityZone": "us-east-1a",
+      "MapPublicIpOnLaunch": true,
+      "State": "available",
+      "Tags": [
+        { "Key": "Name", "Value": "public-subnet-1a" },
+        { "Key": "Environment", "Value": "production" },
+        { "Key": "ManagedBy", "Value": "terraform" }
+      ]
+    },
+    {
+      "SubnetId": "subnet-2c3d4e5f6g7h8i9j0",
+      "VpcId": "vpc-0a1b2c3d4e5f6g7h8",
+      "CidrBlock": "10.0.3.0/24",
+      "AvailabilityZone": "us-east-1c",
+      "MapPublicIpOnLaunch": false,
+      "State": "available",
+      "Tags": [
+        { "Key": "Name", "Value": "database-subnet-1c" },
+        { "Key": "Environment", "Value": "production" },
+        { "Key": "ManagedBy", "Value": "terraform" }
+      ]
+    }
+  ],
+  "security_groups": [
+    {
+      "GroupId": "sg-0a1b2c3d4e5f6g7h8",
+      "GroupName": "web-sg",
+      "Description": "Security group for web servers",
+      "VpcId": "vpc-0a1b2c3d4e5f6g7h8",
+      "IpPermissions": [
+        {
+          "IpProtocol": "tcp",
+          "FromPort": 80,
+          "ToPort": 80,
+          "IpRanges": [{ "CidrIp": "0.0.0.0/0", "Description": "HTTP from internet" }]
+        },
+        {
+          "IpProtocol": "tcp",
+          "FromPort": 443,
+          "ToPort": 443,
+          "IpRanges": [{ "CidrIp": "0.0.0.0/0", "Description": "HTTPS from internet" }]
+        },
+        {
+          "IpProtocol": "tcp",
+          "FromPort": 22,
+          "ToPort": 22,
+          "IpRanges": [{ "CidrIp": "0.0.0.0/0", "Description": "SSH - ADDED MANUALLY" }]
+        }
+      ],
+      "IpPermissionsEgress": [
+        {
+          "IpProtocol": "-1",
+          "FromPort": 0,
+          "ToPort": 0,
+          "IpRanges": [{ "CidrIp": "0.0.0.0/0" }]
+        }
+      ],
+      "Tags": [
+        { "Key": "Name", "Value": "web-sg" },
+        { "Key": "Environment", "Value": "production" },
+        { "Key": "ManagedBy", "Value": "terraform" }
+      ]
+    },
+    {
+      "GroupId": "sg-9z8y7x6w5v4u3t2s1",
+      "GroupName": "debug-sg",
+      "Description": "Debug security group - NOT IN TERRAFORM",
+      "VpcId": "vpc-0a1b2c3d4e5f6g7h8",
+      "IpPermissions": [
+        {
+          "IpProtocol": "tcp",
+          "FromPort": 22,
+          "ToPort": 22,
+          "IpRanges": [{ "CidrIp": "10.0.0.0/8", "Description": "SSH from internal" }]
+        }
+      ],
+      "IpPermissionsEgress": [
+        {
+          "IpProtocol": "-1",
+          "FromPort": 0,
+          "ToPort": 0,
+          "IpRanges": [{ "CidrIp": "0.0.0.0/0" }]
+        }
+      ],
+      "Tags": [
+        { "Key": "Name", "Value": "debug-sg" },
+        { "Key": "Purpose", "Value": "debugging" },
+        { "Key": "CreatedBy", "Value": "manual" }
+      ]
+    }
+  ],
+  "instances": [
+    {
+      "InstanceId": "i-0a1b2c3d4e5f6g7h8",
+      "InstanceType": "t3.large",
+      "ImageId": "ami-0c55b159cbfafe1f0",
+      "State": { "Name": "running", "Code": 16 },
+      "SubnetId": "subnet-0a1b2c3d4e5f6g7h8",
+      "VpcId": "vpc-0a1b2c3d4e5f6g7h8",
+      "PrivateIpAddress": "10.0.1.100",
+      "PublicIpAddress": "54.123.45.67",
+      "SecurityGroups": [
+        { "GroupId": "sg-0a1b2c3d4e5f6g7h8", "GroupName": "web-sg" }
+      ],
+      "Tags": [
+        { "Key": "Name", "Value": "web-server" },
+        { "Key": "Environment", "Value": "production" },
+        { "Key": "ManagedBy", "Value": "terraform" },
+        { "Key": "Role", "Value": "webserver" }
+      ]
+    }
+  ],
+  "load_balancers": [
+    {
+      "LoadBalancerArn": "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web-alb/50dc6c495c0c9188",
+      "LoadBalancerName": "web-alb",
+      "DNSName": "web-alb-1234567890.us-east-1.elb.amazonaws.com",
+      "Type": "application",
+      "Scheme": "internet-facing",
+      "VpcId": "vpc-0a1b2c3d4e5f6g7h8",
+      "State": { "Code": "active" },
+      "AvailabilityZones": [
+        { 
+          "SubnetId": "subnet-0a1b2c3d4e5f6g7h8", 
+          "ZoneName": "us-east-1a",
+          "LoadBalancerAddresses": []
+        }
+      ],
+      "SecurityGroups": ["sg-0a1b2c3d4e5f6g7h8"],
+      "IpAddressType": "ipv4",
+      "Tags": [
+        { "Key": "Name", "Value": "web-alb" },
+        { "Key": "Environment", "Value": "production" },
+        { "Key": "ManagedBy", "Value": "terraform" }
+      ]
+    }
+  ],
+  "load_balancer_attributes": {
+    "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web-alb/50dc6c495c0c9188": [
+      { "Key": "idle_timeout.timeout_seconds", "Value": "120" },
+      { "Key": "deletion_protection.enabled", "Value": "false" },
+      { "Key": "routing.http2.enabled", "Value": "true" },
+      { "Key": "access_logs.s3.enabled", "Value": "false" }
+    ]
+  }
+}
