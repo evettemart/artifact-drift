@@ -1,0 +1,157 @@
+{
+  "scanId": "scan-mock-2026-06-23",
+  "findings": [
+    {
+      "driftId": "drift-001",
+      "driftType": "missing",
+      "severity": "high",
+      "status": "open",
+      "resourceType": "subnet",
+      "provider": "aws",
+      "region": "us-east-1",
+      "logicalName": "private-subnet-1b",
+      "diffSummary": "Subnet 'private-subnet-1b' (10.0.2.0/24) defined in architecture and Terraform but not found in AWS",
+      "detectedAt": "2026-06-23T10:00:02Z",
+      "reasoning": {
+        "summary": "Private subnet missing from AWS deployment",
+        "likelyCause": "Subnet was defined in Terraform but never applied, or was manually deleted from AWS console",
+        "impact": "High availability architecture is incomplete. Resources intended for private subnet cannot be deployed.",
+        "terraformRemediation": "Run `terraform apply` to create the missing subnet:\n\n```hcl\nresource \"aws_subnet\" \"private_1b\" {\n  vpc_id            = aws_vpc.main.id\n  cidr_block        = \"10.0.2.0/24\"\n  availability_zone = \"us-east-1b\"\n  \n  tags = {\n    Name        = \"private-subnet-1b\"\n    Environment = \"production\"\n    ManagedBy   = \"terraform\"\n  }\n}\n```",
+        "generatedBy": "deterministic"
+      }
+    },
+    {
+      "driftId": "drift-002",
+      "driftType": "unmanaged",
+      "severity": "medium",
+      "status": "open",
+      "resourceType": "security_group",
+      "provider": "aws",
+      "region": "us-east-1",
+      "logicalName": "debug-sg",
+      "diffSummary": "Security group 'debug-sg' exists in AWS but is not managed by Terraform",
+      "detectedAt": "2026-06-23T10:00:02Z",
+      "reasoning": {
+        "summary": "Unmanaged security group found in AWS",
+        "likelyCause": "Security group was created manually in AWS console for debugging purposes and never added to Terraform",
+        "impact": "Security group is not version controlled and could be accidentally deleted or modified without tracking",
+        "terraformRemediation": "Import the security group into Terraform or remove it:\n\n```bash\n# Option 1: Import into Terraform\nterraform import aws_security_group.debug sg-9z8y7x6w5v4u3t2s1\n\n# Then add to your Terraform code:\nresource \"aws_security_group\" \"debug\" {\n  name        = \"debug-sg\"\n  description = \"Debug security group\"\n  vpc_id      = aws_vpc.main.id\n  \n  ingress {\n    from_port   = 22\n    to_port     = 22\n    protocol    = \"tcp\"\n    cidr_blocks = [\"10.0.0.0/8\"]\n  }\n}\n\n# Option 2: Remove if no longer needed\n# Delete from AWS console or CLI\n```",
+        "generatedBy": "deterministic"
+      }
+    },
+    {
+      "driftId": "drift-003",
+      "driftType": "changed_outside_terraform",
+      "severity": "high",
+      "status": "open",
+      "resourceType": "security_group",
+      "provider": "aws",
+      "region": "us-east-1",
+      "logicalName": "web-sg",
+      "diffSummary": "Security group 'web-sg' has port 22 (SSH) open to 0.0.0.0/0, which is not defined in Terraform",
+      "detectedAt": "2026-06-23T10:00:03Z",
+      "reasoning": {
+        "summary": "SSH port opened manually, creating security risk",
+        "likelyCause": "Administrator opened SSH port for debugging but forgot to close it or add to Terraform",
+        "impact": "Critical security vulnerability - SSH exposed to internet. This violates security best practices and could allow unauthorized access.",
+        "terraformRemediation": "Remove the manual change by running `terraform apply` to restore the intended state:\n\n```bash\n# Terraform will detect the drift and remove the SSH rule\nterraform plan  # Review changes\nterraform apply # Apply to remove SSH rule\n\n# If SSH access is needed, add it properly with restricted CIDR:\nresource \"aws_security_group_rule\" \"ssh\" {\n  type              = \"ingress\"\n  from_port         = 22\n  to_port           = 22\n  protocol          = \"tcp\"\n  cidr_blocks       = [\"10.0.0.0/8\"]  # Internal only\n  security_group_id = aws_security_group.web.id\n  description       = \"SSH from internal network only\"\n}\n```",
+        "generatedBy": "deterministic"
+      }
+    },
+    {
+      "driftId": "drift-004",
+      "driftType": "attribute_mismatch",
+      "severity": "medium",
+      "status": "open",
+      "resourceType": "ec2_instance",
+      "provider": "aws",
+      "region": "us-east-1",
+      "logicalName": "web-server",
+      "diffSummary": "Instance type mismatch: intent=t3.medium, terraform=t3.small, aws=t3.large",
+      "detectedAt": "2026-06-23T10:00:03Z",
+      "reasoning": {
+        "summary": "EC2 instance type differs across all three sources",
+        "likelyCause": "Instance was resized manually in AWS (to t3.large), but Terraform state shows t3.small, and architecture intent specifies t3.medium",
+        "impact": "Cost implications - running larger instance than planned. Also indicates configuration management issues.",
+        "terraformRemediation": "Decide on correct instance type and update both architecture and Terraform:\n\n```hcl\n# Update Terraform to match intent (t3.medium)\nresource \"aws_instance\" \"web_server\" {\n  instance_type = \"t3.medium\"  # Changed from t3.small\n  ami           = \"ami-0c55b159cbfafe1f0\"\n  subnet_id     = aws_subnet.public_1a.id\n  \n  tags = {\n    Name        = \"web-server\"\n    Environment = \"production\"\n    ManagedBy   = \"terraform\"\n  }\n}\n\n# Then apply:\nterraform apply\n\n# Note: This will cause instance replacement\n```",
+        "generatedBy": "deterministic"
+      }
+    },
+    {
+      "driftId": "drift-005",
+      "driftType": "tag_mismatch",
+      "severity": "low",
+      "status": "open",
+      "resourceType": "vpc",
+      "provider": "aws",
+      "region": "us-east-1",
+      "logicalName": "main-vpc",
+      "diffSummary": "VPC missing 'Environment' tag in AWS (present in intent and Terraform)",
+      "detectedAt": "2026-06-23T10:00:04Z",
+      "reasoning": {
+        "summary": "Environment tag removed from VPC",
+        "likelyCause": "Tag was manually removed in AWS console or through CLI",
+        "impact": "Low - affects resource organization and cost allocation tracking",
+        "terraformRemediation": "Run `terraform apply` to restore the missing tag:\n\n```bash\nterraform apply\n\n# Terraform will detect and restore the tag\n# No resource recreation needed - just tag update\n```",
+        "generatedBy": "deterministic"
+      }
+    },
+    {
+      "driftId": "drift-006",
+      "driftType": "configuration_drift",
+      "severity": "medium",
+      "status": "open",
+      "resourceType": "alb",
+      "provider": "aws",
+      "region": "us-east-1",
+      "logicalName": "web-alb",
+      "diffSummary": "Load balancer idle timeout changed from 60s to 120s",
+      "detectedAt": "2026-06-23T10:00:04Z",
+      "reasoning": {
+        "summary": "ALB idle timeout configuration drifted",
+        "likelyCause": "Timeout was increased manually to handle long-running requests",
+        "impact": "May affect connection handling and resource utilization",
+        "terraformRemediation": "Update Terraform to match current configuration or revert:\n\n```hcl\nresource \"aws_lb\" \"web\" {\n  name               = \"web-alb\"\n  load_balancer_type = \"application\"\n  subnets            = [aws_subnet.public_1a.id, aws_subnet.private_1b.id]\n  security_groups    = [aws_security_group.web.id]\n  \n  # Option 1: Accept the change\n  idle_timeout = 120  # Changed from 60\n  \n  # Option 2: Revert to original\n  # idle_timeout = 60\n}\n```",
+        "generatedBy": "deterministic"
+      }
+    },
+    {
+      "driftId": "drift-007",
+      "driftType": "relationship_broken",
+      "severity": "high",
+      "status": "open",
+      "resourceType": "subnet",
+      "provider": "aws",
+      "region": "us-east-1",
+      "logicalName": "database-subnet-1c",
+      "diffSummary": "Database subnet not associated with private route table as specified in architecture",
+      "detectedAt": "2026-06-23T10:00:04Z",
+      "reasoning": {
+        "summary": "Subnet routing relationship broken",
+        "likelyCause": "Route table association was removed or never created",
+        "impact": "Database subnet may not have correct routing, affecting connectivity",
+        "terraformRemediation": "Create the route table association:\n\n```hcl\nresource \"aws_route_table_association\" \"database\" {\n  subnet_id      = aws_subnet.database_1c.id\n  route_table_id = aws_route_table.private.id\n}\n```",
+        "generatedBy": "deterministic"
+      }
+    },
+    {
+      "driftId": "drift-008",
+      "driftType": "version_mismatch",
+      "severity": "info",
+      "status": "open",
+      "resourceType": "provider",
+      "provider": "aws",
+      "region": "us-east-1",
+      "logicalName": "hashicorp/aws",
+      "diffSummary": "Terraform AWS provider version in state (1.5.0) may differ from current version",
+      "detectedAt": "2026-06-23T10:00:05Z",
+      "reasoning": {
+        "summary": "Provider version tracking",
+        "likelyCause": "Informational - tracking provider version used",
+        "impact": "Minimal - but important for reproducibility",
+        "terraformRemediation": "Pin provider version in Terraform:\n\n```hcl\nterraform {\n  required_providers {\n    aws = {\n      source  = \"hashicorp/aws\"\n      version = \"~> 5.0\"\n    }\n  }\n}\n```",
+        "generatedBy": "deterministic"
+      }
+    }
+  ]
+}
