@@ -1,12 +1,17 @@
-import { readFileSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { createHash } from 'crypto';
 import { join } from 'path';
 import yaml from 'yaml';
+import { eq } from 'drizzle-orm';
 import {
   Provider,
   ResourceSource,
   ResourceType,
   RelationshipType,
+  DriftType,
+  Severity,
+  DriftStatus,
+  calculateComplianceScore,
 } from '../types/shared';
 import type {
   DriftFinding,
@@ -14,8 +19,14 @@ import type {
   ReasoningResult,
   ResourceRelationship,
   ScanResult,
-  WhitelistedFinding,
+  ScanStatistics,
 } from '../types/shared';
+import { db } from '../db';
+import {
+  scans,
+  findings as findingsTable,
+  resources as resourcesTable,
+} from '../db/schema';
 
 interface ArchitectureResourceInput {
   type: string;
@@ -110,7 +121,7 @@ function buildRelationships(
 }
 
 function parseArchitectureIntent(): NormalizedResource[] {
-  const filePath = join(process.cwd(), '..', 'examples', 'architecture.yaml');
+  const filePath = examplesPath('architecture.yaml');
   const content = readFileSync(filePath, 'utf-8');
   const parsed = yaml.parse(content) as ArchitectureIntentInput;
   const checksum = sha(content);
@@ -137,7 +148,7 @@ function parseArchitectureIntent(): NormalizedResource[] {
 }
 
 function parseTerraformState(): NormalizedResource[] {
-  const filePath = join(process.cwd(), '..', 'examples', 'terraform-state.json');
+  const filePath = examplesPath('terraform-state.json');
   const content = readFileSync(filePath, 'utf-8');
   const parsed = JSON.parse(content) as TerraformStateInput;
   const checksum = sha(content);
@@ -195,7 +206,7 @@ function extractTags(tags: unknown): Record<string, string> {
 }
 
 function parseAwsInventory(): NormalizedResource[] {
-  const filePath = join(process.cwd(), '..', 'examples', 'aws-mock-inventory.json');
+  const filePath = examplesPath('aws-mock-inventory.json');
   const content = readFileSync(filePath, 'utf-8');
   const parsed = JSON.parse(content) as AwsMockInventoryInput;
   const checksum = sha(content);
@@ -336,79 +347,534 @@ function parseAwsInventory(): NormalizedResource[] {
   return [...vpcs, ...subnets, ...securityGroups, ...instances, ...loadBalancers];
 }
 
-function toWhitelistedFinding(finding: DriftFinding): WhitelistedFinding {
-  return {
-    findingId: finding.driftId,
-    driftType: finding.driftType,
-    resourceType: finding.resourceType,
-    provider: finding.provider,
-    region: finding.region,
-    logicalName: finding.logicalName,
-    expected: {},
-    observed: {},
-    diffSummary: finding.diffSummary,
-  };
+function examplesPath(file: string): string {
+  const candidates = [
+    join(process.cwd(), '..', 'examples', file),
+    join(process.cwd(), 'examples', file),
+  ];
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  return candidates[0];
 }
 
-function deterministicReasoning(finding: DriftFinding): ReasoningResult {
-  const severity = finding.severity;
+function readTerraformVersion(): string | undefined {
+  try {
+    const content = readFileSync(examplesPath('terraform-state.json'), 'utf-8');
+    const parsed = JSON.parse(content) as TerraformStateInput;
+    return parsed.terraform_version;
+  } catch {
+    return undefined;
+  }
+}
+
+function countBy<T>(items: T[], key: (item: T) => string): Record<string, number> {
+  return items.reduce<Record<string, number>>((acc, item) => {
+    const value = key(item);
+    acc[value] = (acc[value] ?? 0) + 1;
+    return acc;
+  }, {});
+}
+
+function indexByLogicalName(
+  list: NormalizedResource[]
+): Map<string, NormalizedResource> {
+  const map = new Map<string, NormalizedResource>();
+  for (const resource of list) {
+    map.set(resource.logicalName, resource);
+  }
+  return map;
+}
+
+function toNumber(value: unknown): number | undefined {
+  if (typeof value === 'number') {
+    return value;
+  }
+  if (typeof value === 'string' && value.trim() !== '' && !Number.isNaN(Number(value))) {
+    return Number(value);
+  }
+  return undefined;
+}
+
+function getCidr(resource: NormalizedResource): string {
+  const attrs = resource.attributes;
+  return (attrs.cidr_block as string) ?? (attrs.cidrBlock as string) ?? 'n/a';
+}
+
+function getInstanceType(resource: NormalizedResource | undefined): string | undefined {
+  if (!resource) {
+    return undefined;
+  }
+  const attrs = resource.attributes;
+  return (attrs.instance_type as string) ?? (attrs.instanceType as string);
+}
+
+function getIdleTimeout(resource: NormalizedResource | undefined): number | undefined {
+  if (!resource) {
+    return undefined;
+  }
+  const attrs = resource.attributes;
+  const direct = toNumber(attrs.idle_timeout ?? attrs.idleTimeout);
+  if (direct !== undefined) {
+    return direct;
+  }
+  const lbAttributes = attrs.attributes as
+    | Array<{ Key?: string; Value?: string }>
+    | undefined;
+  if (Array.isArray(lbAttributes)) {
+    const match = lbAttributes.find(
+      (entry) => entry.Key === 'idle_timeout.timeout_seconds'
+    );
+    if (match) {
+      return toNumber(match.Value);
+    }
+  }
+  return undefined;
+}
+
+function getIngressPorts(resource: NormalizedResource | undefined): number[] {
+  if (!resource) {
+    return [];
+  }
+  const attrs = resource.attributes;
+  const rules = (attrs.ingress ?? attrs.ingress_rules ?? attrs.ingressRules) as
+    | Array<Record<string, unknown>>
+    | undefined;
+  const ports = new Set<number>();
+  if (Array.isArray(rules)) {
+    for (const rule of rules) {
+      const port = toNumber(rule.from_port ?? rule.FromPort);
+      if (port !== undefined) {
+        ports.add(port);
+      }
+    }
+  }
+  return Array.from(ports).sort((a, b) => a - b);
+}
+
+const TYPE_LABELS: Record<string, string> = {
+  [ResourceType.VPC]: 'VPC',
+  [ResourceType.SUBNET]: 'Subnet',
+  [ResourceType.SECURITY_GROUP]: 'Security group',
+  [ResourceType.EC2_INSTANCE]: 'EC2 instance',
+  [ResourceType.ALB]: 'Load balancer',
+  [ResourceType.PROVIDER]: 'Provider',
+};
+
+function labelType(type: ResourceType | string): string {
+  return TYPE_LABELS[type as string] ?? String(type);
+}
+
+function buildReasoning(
+  summary: string,
+  likelyCause: string,
+  impact: string,
+  terraformRemediation: string,
+  severity: Severity
+): ReasoningResult {
   return {
-    summary: finding.diffSummary,
+    summary,
     severity,
-    likelyCause: `Detected ${finding.driftType} on ${finding.logicalName}`,
-    recommendedAction: 'Review the drift and reconcile Terraform with the approved design.',
-    terraformRemediation: 'Run terraform plan, update configuration if needed, then terraform apply.',
-    businessImpact: severity === 'high' ? 'High operational or security impact.' : 'Operational drift requiring review.',
-    impact: severity === 'high' ? 'High operational or security impact.' : 'Operational drift requiring review.',
+    likelyCause,
+    recommendedAction:
+      'Reconcile Terraform with the approved design, then re-run the scan.',
+    terraformRemediation,
+    businessImpact: impact,
+    impact,
     generatedBy: 'deterministic',
     reasonedAt: nowIso(),
   };
 }
 
-function loadMockFindings(): DriftFinding[] {
-  const filePath = join(process.cwd(), 'data', 'mock', 'findings.json');
-  const content = readFileSync(filePath, 'utf-8');
-  const parsed = JSON.parse(content) as { findings: DriftFinding[] };
-  return parsed.findings;
+/**
+ * Deterministic drift detection across the three normalized sources.
+ * Pure code (no LLM): compares architecture intent, Terraform state, and AWS
+ * inventory and produces findings for each supported drift type.
+ */
+export function detectDrift(
+  intentResources: NormalizedResource[],
+  terraformResources: NormalizedResource[],
+  awsResources: NormalizedResource[],
+  terraformVersionValue: string | undefined,
+  region: string
+): DriftFinding[] {
+  const detectedAt = nowIso();
+  const intentByName = indexByLogicalName(intentResources);
+  const terraformByName = indexByLogicalName(terraformResources);
+  const awsByName = indexByLogicalName(awsResources);
+
+  const findingsList: DriftFinding[] = [];
+  let counter = 0;
+  const nextId = (): string => `drift-${String(++counter).padStart(3, '0')}`;
+
+  // 1. MISSING — present in architecture and Terraform but absent from AWS
+  for (const tfResource of terraformResources) {
+    if (
+      awsByName.has(tfResource.logicalName) ||
+      !intentByName.has(tfResource.logicalName)
+    ) {
+      continue;
+    }
+    findingsList.push({
+      driftId: nextId(),
+      driftType: DriftType.MISSING,
+      severity: Severity.HIGH,
+      status: DriftStatus.OPEN,
+      resourceType: tfResource.type,
+      provider: tfResource.provider,
+      region: tfResource.region,
+      logicalName: tfResource.logicalName,
+      expected: { logicalName: tfResource.logicalName, type: tfResource.type },
+      observed: null,
+      diffSummary: `${labelType(tfResource.type)} '${tfResource.logicalName}' (${getCidr(tfResource)}) defined in architecture and Terraform but not found in AWS`,
+      attributeDiffs: [],
+      detectedAt,
+      reasoning: buildReasoning(
+        `${labelType(tfResource.type)} missing from AWS deployment`,
+        'Resource was defined in Terraform but never applied, or was manually deleted from AWS.',
+        'Intended architecture is incomplete; dependent resources cannot be deployed.',
+        'Run `terraform plan` then `terraform apply` to create the missing resource.',
+        Severity.HIGH
+      ),
+    });
+  }
+
+  // 2. UNMANAGED — present in AWS but not managed by Terraform
+  for (const awsResource of awsResources) {
+    if (terraformByName.has(awsResource.logicalName)) {
+      continue;
+    }
+    findingsList.push({
+      driftId: nextId(),
+      driftType: DriftType.UNMANAGED,
+      severity: Severity.MEDIUM,
+      status: DriftStatus.OPEN,
+      resourceType: awsResource.type,
+      provider: awsResource.provider,
+      region: awsResource.region,
+      logicalName: awsResource.logicalName,
+      expected: null,
+      observed: { logicalName: awsResource.logicalName, type: awsResource.type },
+      diffSummary: `${labelType(awsResource.type)} '${awsResource.logicalName}' exists in AWS but is not managed by Terraform`,
+      attributeDiffs: [],
+      detectedAt,
+      reasoning: buildReasoning(
+        `Unmanaged ${labelType(awsResource.type).toLowerCase()} found in AWS`,
+        'Resource was created manually in AWS and never added to Terraform.',
+        'Resource is not version controlled and can be changed or deleted without tracking.',
+        'Import the resource with `terraform import`, or remove it if it is no longer required.',
+        Severity.MEDIUM
+      ),
+    });
+  }
+
+  // 3. CHANGED_OUTSIDE_TERRAFORM — security group rules added outside Terraform
+  for (const awsResource of awsResources) {
+    if (awsResource.type !== ResourceType.SECURITY_GROUP) {
+      continue;
+    }
+    const tfResource = terraformByName.get(awsResource.logicalName);
+    if (!tfResource) {
+      continue;
+    }
+    const terraformPorts = getIngressPorts(tfResource);
+    const awsPorts = getIngressPorts(awsResource);
+    const extraPorts = awsPorts.filter((port) => !terraformPorts.includes(port));
+    if (extraPorts.length === 0) {
+      continue;
+    }
+    findingsList.push({
+      driftId: nextId(),
+      driftType: DriftType.CHANGED_OUTSIDE_TERRAFORM,
+      severity: Severity.HIGH,
+      status: DriftStatus.OPEN,
+      resourceType: awsResource.type,
+      provider: awsResource.provider,
+      region: awsResource.region,
+      logicalName: awsResource.logicalName,
+      expected: { attributes: { ports: terraformPorts } },
+      observed: { attributes: { ports: awsPorts } },
+      diffSummary: `Security group '${awsResource.logicalName}' has port ${extraPorts.join(', ')} open in AWS that is not defined in Terraform`,
+      attributeDiffs: extraPorts.map((port) => ({
+        path: 'ingress.ports',
+        expectedValue: null,
+        observedValue: port,
+        diffType: 'added' as const,
+      })),
+      detectedAt,
+      reasoning: buildReasoning(
+        'Security group rule added outside Terraform',
+        'A port was opened manually in AWS and not reflected in Terraform.',
+        extraPorts.includes(22)
+          ? 'SSH exposed outside Terraform control — potential security risk.'
+          : 'Network exposure changed outside Terraform control.',
+        'Run `terraform apply` to remove the rule, or add it to Terraform with a restricted CIDR.',
+        Severity.HIGH
+      ),
+    });
+  }
+
+  // 4. ATTRIBUTE_MISMATCH — instance type differs across sources
+  for (const tfResource of terraformResources) {
+    if (tfResource.type !== ResourceType.EC2_INSTANCE) {
+      continue;
+    }
+    const awsResource = awsByName.get(tfResource.logicalName);
+    const intentResource = intentByName.get(tfResource.logicalName);
+    const intentType = getInstanceType(intentResource);
+    const terraformType = getInstanceType(tfResource);
+    const awsType = getInstanceType(awsResource);
+    if (!awsType) {
+      continue;
+    }
+    const mismatch =
+      awsType !== terraformType ||
+      (intentType !== undefined && intentType !== terraformType);
+    if (!mismatch) {
+      continue;
+    }
+    findingsList.push({
+      driftId: nextId(),
+      driftType: DriftType.ATTRIBUTE_MISMATCH_LEGACY,
+      severity: Severity.MEDIUM,
+      status: DriftStatus.OPEN,
+      resourceType: tfResource.type,
+      provider: tfResource.provider,
+      region: tfResource.region,
+      logicalName: tfResource.logicalName,
+      expected: { attributes: { instanceType: intentType ?? terraformType } },
+      observed: { attributes: { instanceType: awsType } },
+      diffSummary: `Instance type mismatch: intent=${intentType ?? 'n/a'}, terraform=${terraformType ?? 'n/a'}, aws=${awsType}`,
+      attributeDiffs: [
+        {
+          path: 'instanceType',
+          expectedValue: intentType ?? terraformType,
+          observedValue: awsType,
+          diffType: 'modified' as const,
+        },
+      ],
+      detectedAt,
+      reasoning: buildReasoning(
+        'EC2 instance type differs across sources',
+        'The instance was resized in AWS while Terraform and the design specify different types.',
+        'Cost and capacity differ from the approved design.',
+        'Set the intended `instance_type` in Terraform and apply (note: resizing may replace the instance).',
+        Severity.MEDIUM
+      ),
+    });
+  }
+
+  // 5. TAG_MISMATCH — tags defined in architecture but missing in AWS
+  for (const intentResource of intentResources) {
+    const awsResource = awsByName.get(intentResource.logicalName);
+    if (!awsResource) {
+      continue;
+    }
+    const missingTags = Object.keys(intentResource.tags).filter(
+      (tagKey) => !(tagKey in awsResource.tags)
+    );
+    if (missingTags.length === 0) {
+      continue;
+    }
+    findingsList.push({
+      driftId: nextId(),
+      driftType: DriftType.TAG_MISMATCH_LEGACY,
+      severity: Severity.LOW,
+      status: DriftStatus.OPEN,
+      resourceType: intentResource.type,
+      provider: intentResource.provider,
+      region: intentResource.region,
+      logicalName: intentResource.logicalName,
+      expected: { tags: intentResource.tags },
+      observed: { tags: awsResource.tags },
+      diffSummary: `${labelType(intentResource.type)} '${intentResource.logicalName}' missing '${missingTags.join(', ')}' tag in AWS (present in intent and Terraform)`,
+      attributeDiffs: missingTags.map((tagKey) => ({
+        path: `tags.${tagKey}`,
+        expectedValue: intentResource.tags[tagKey],
+        observedValue: null,
+        diffType: 'removed' as const,
+      })),
+      detectedAt,
+      reasoning: buildReasoning(
+        'Tag missing from deployed resource',
+        'The tag was removed manually in AWS or never applied.',
+        'Affects cost allocation, ownership, and resource organization.',
+        'Run `terraform apply` to restore the tag (no resource recreation required).',
+        Severity.LOW
+      ),
+    });
+  }
+
+  // 6. CONFIGURATION_DRIFT — load balancer attribute drift
+  for (const tfResource of terraformResources) {
+    if (tfResource.type !== ResourceType.ALB) {
+      continue;
+    }
+    const awsResource = awsByName.get(tfResource.logicalName);
+    if (!awsResource) {
+      continue;
+    }
+    const terraformTimeout = getIdleTimeout(tfResource);
+    const awsTimeout = getIdleTimeout(awsResource);
+    if (
+      terraformTimeout === undefined ||
+      awsTimeout === undefined ||
+      terraformTimeout === awsTimeout
+    ) {
+      continue;
+    }
+    findingsList.push({
+      driftId: nextId(),
+      driftType: DriftType.CONFIGURATION_DRIFT,
+      severity: Severity.MEDIUM,
+      status: DriftStatus.OPEN,
+      resourceType: tfResource.type,
+      provider: tfResource.provider,
+      region: tfResource.region,
+      logicalName: tfResource.logicalName,
+      expected: { attributes: { idleTimeout: terraformTimeout } },
+      observed: { attributes: { idleTimeout: awsTimeout } },
+      diffSummary: `Load balancer idle timeout changed from ${terraformTimeout}s to ${awsTimeout}s`,
+      attributeDiffs: [
+        {
+          path: 'idleTimeout',
+          expectedValue: terraformTimeout,
+          observedValue: awsTimeout,
+          diffType: 'modified' as const,
+        },
+      ],
+      detectedAt,
+      reasoning: buildReasoning(
+        'Load balancer configuration drifted',
+        'The idle timeout was changed in AWS outside Terraform.',
+        'May affect connection handling and resource utilization.',
+        'Update the `idle_timeout` in Terraform to the intended value and apply.',
+        Severity.MEDIUM
+      ),
+    });
+  }
+
+  // 7. RELATIONSHIP_BROKEN — required route table association absent in AWS
+  for (const intentResource of intentResources) {
+    const routeRelationships = intentResource.relationships.filter(
+      (relationship) =>
+        String(relationship.type) === 'route_table' ||
+        relationship.type === RelationshipType.ROUTES_TO
+    );
+    if (routeRelationships.length === 0) {
+      continue;
+    }
+    const awsResource = awsByName.get(intentResource.logicalName);
+    if (!awsResource) {
+      continue;
+    }
+    const hasRoute = awsResource.relationships.some(
+      (relationship) =>
+        String(relationship.type) === 'route_table' ||
+        relationship.type === RelationshipType.ROUTES_TO
+    );
+    if (hasRoute) {
+      continue;
+    }
+    findingsList.push({
+      driftId: nextId(),
+      driftType: DriftType.RELATIONSHIP_BROKEN,
+      severity: Severity.HIGH,
+      status: DriftStatus.OPEN,
+      resourceType: intentResource.type,
+      provider: intentResource.provider,
+      region: intentResource.region,
+      logicalName: intentResource.logicalName,
+      expected: { relationships: intentResource.relationships },
+      observed: { relationships: awsResource.relationships },
+      diffSummary: `${labelType(intentResource.type)} '${intentResource.logicalName}' not associated with private route table as specified in architecture`,
+      attributeDiffs: [],
+      detectedAt,
+      reasoning: buildReasoning(
+        'Resource routing relationship broken',
+        'The route table association was removed or never created.',
+        'Resource may not have the intended routing or connectivity.',
+        'Create the missing `aws_route_table_association` and apply.',
+        Severity.HIGH
+      ),
+    });
+  }
+
+  // 8. VERSION_MISMATCH — informational provider version tracking
+  if (terraformVersionValue) {
+    findingsList.push({
+      driftId: nextId(),
+      driftType: DriftType.VERSION_MISMATCH,
+      severity: Severity.INFO,
+      status: DriftStatus.OPEN,
+      resourceType: ResourceType.PROVIDER,
+      provider: Provider.AWS,
+      region,
+      logicalName: 'hashicorp/aws',
+      expected: null,
+      observed: { attributes: { terraformVersion: terraformVersionValue } },
+      diffSummary: `Terraform AWS provider version in state (${terraformVersionValue}) may differ from the current version`,
+      attributeDiffs: [],
+      detectedAt,
+      reasoning: buildReasoning(
+        'Provider version tracking',
+        'Informational — records the provider version used in the last apply.',
+        'Minimal impact, but important for reproducibility.',
+        'Pin the AWS provider version in the `required_providers` block.',
+        Severity.INFO
+      ),
+    });
+  }
+
+  return findingsList;
 }
 
-function loadMockScan(): ScanResult {
-  const filePath = join(process.cwd(), 'data', 'mock', 'scan-result.json');
-  const content = readFileSync(filePath, 'utf-8');
-  return JSON.parse(content) as ScanResult;
-}
+let cachedArtifacts: AnalysisArtifacts | null = null;
 
 export function runFullAnalysis(): AnalysisArtifacts {
+  const startedAt = nowIso();
   const intentResources = parseArchitectureIntent();
   const terraformResources = parseTerraformState();
   const awsResources = parseAwsInventory();
+  const terraformVersionValue = readTerraformVersion();
+  const region = intentResources[0]?.region ?? 'us-east-1';
 
-  const findings = loadMockFindings().map((finding) => {
-    const whitelisted = toWhitelistedFinding(finding);
-    return {
-      ...finding,
-      scanId: 'scan-generated-latest',
-      reasoning: finding.reasoning ?? deterministicReasoning({
-        ...finding,
-        scanId: 'scan-generated-latest',
-      }),
-      diffSummary: whitelisted.diffSummary,
-    };
-  });
+  const findingsList = detectDrift(
+    intentResources,
+    terraformResources,
+    awsResources,
+    terraformVersionValue,
+    region
+  );
 
-  const baseScan = loadMockScan();
+  const completedAt = nowIso();
+  const complianceScore = calculateComplianceScore(findingsList);
+
+  const statistics: ScanStatistics = {
+    totalFindings: findingsList.length,
+    totalResources:
+      intentResources.length + terraformResources.length + awsResources.length,
+    bySeverity: countBy(findingsList, (finding) => finding.severity),
+    byType: countBy(findingsList, (finding) => String(finding.driftType)),
+    byStatus: countBy(findingsList, (finding) => finding.status),
+  };
+
   const scan: ScanResult = {
-    ...baseScan,
     scanId: 'scan-generated-latest',
-    startedAt: nowIso(),
-    completedAt: nowIso(),
-    findings,
-    statistics: {
-      ...baseScan.statistics,
-      totalFindings: findings.length,
-    },
+    projectId: 'demo-project',
+    startedAt,
+    completedAt,
+    durationMs: Math.max(
+      1,
+      new Date(completedAt).getTime() - new Date(startedAt).getTime()
+    ),
+    complianceScore,
+    status: 'completed',
+    findings: findingsList,
+    statistics,
     sources: {
-      ...baseScan.sources,
       intent: {
         type: 'yaml',
         path: 'examples/architecture.yaml',
@@ -418,24 +884,114 @@ export function runFullAnalysis(): AnalysisArtifacts {
         type: 'state',
         path: 'examples/terraform-state.json',
         resourceCount: terraformResources.length,
-        version: '1.5.0',
+        version: terraformVersionValue,
       },
       aws: {
         type: 'mock',
         path: 'examples/aws-mock-inventory.json',
         resourceCount: awsResources.length,
-        region: 'us-east-1',
+        region,
       },
+    },
+    config: {
+      enableLLMReasoning: false,
+      regions: [region],
+      detectUnmanaged: true,
     },
   };
 
-  return {
+  cachedArtifacts = {
     intentResources,
     terraformResources,
     awsResources,
-    findings,
+    findings: findingsList,
     scan,
   };
+
+  return cachedArtifacts;
 }
 
-// Made with Bob
+export function getLatestArtifacts(): AnalysisArtifacts {
+  if (!cachedArtifacts) {
+    return runFullAnalysis();
+  }
+  return cachedArtifacts;
+}
+
+export function persistAnalysis(artifacts: AnalysisArtifacts): void {
+  const now = nowIso();
+  const scan = artifacts.scan;
+
+  db.delete(scans).where(eq(scans.scanId, scan.scanId)).run();
+  db.insert(scans)
+    .values({
+      scanId: scan.scanId,
+      projectId: scan.projectId,
+      status: scan.status ?? 'completed',
+      startedAt: scan.startedAt,
+      completedAt: scan.completedAt,
+      durationMs: scan.durationMs,
+      complianceScore: Math.round(scan.complianceScore),
+      statisticsJson: JSON.stringify(scan.statistics),
+      sourcesJson: JSON.stringify(scan.sources),
+      configJson: JSON.stringify(scan.config),
+      createdAt: now,
+    })
+    .run();
+
+  db.delete(findingsTable).where(eq(findingsTable.scanId, scan.scanId)).run();
+  if (artifacts.findings.length > 0) {
+    db.insert(findingsTable)
+      .values(
+        artifacts.findings.map((finding) => ({
+          driftId: `${scan.scanId}:${finding.driftId}`,
+          scanId: scan.scanId,
+          driftType: String(finding.driftType),
+          severity: finding.severity,
+          status: finding.status,
+          resourceType: String(finding.resourceType),
+          provider: String(finding.provider),
+          region: finding.region,
+          logicalName: finding.logicalName,
+          diffSummary: finding.diffSummary,
+          expectedJson: finding.expected ? JSON.stringify(finding.expected) : null,
+          observedJson: finding.observed ? JSON.stringify(finding.observed) : null,
+          attributeDiffsJson: finding.attributeDiffs
+            ? JSON.stringify(finding.attributeDiffs)
+            : null,
+          reasoningJson: finding.reasoning ? JSON.stringify(finding.reasoning) : null,
+          detectedAt: finding.detectedAt,
+          createdAt: now,
+        }))
+      )
+      .run();
+  }
+
+  const allResources = [
+    ...artifacts.intentResources,
+    ...artifacts.terraformResources,
+    ...artifacts.awsResources,
+  ];
+  db.delete(resourcesTable).where(eq(resourcesTable.scanId, scan.scanId)).run();
+  if (allResources.length > 0) {
+    db.insert(resourcesTable)
+      .values(
+        allResources.map((resource) => ({
+          resourceId: `${scan.scanId}:${resource.id}`,
+          scanId: scan.scanId,
+          logicalName: resource.logicalName,
+          type: String(resource.type),
+          provider: String(resource.provider),
+          region: resource.region,
+          source: String(resource.source),
+          attributesJson: JSON.stringify(resource.attributes),
+          tagsJson: JSON.stringify(resource.tags),
+          relationshipsJson: JSON.stringify(resource.relationships),
+          sensitiveRedacted: resource.sensitiveRedacted,
+          metadataJson: JSON.stringify(resource.metadata),
+          createdAt: now,
+        }))
+      )
+      .run();
+  }
+}

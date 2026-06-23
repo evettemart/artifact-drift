@@ -9,11 +9,30 @@ interface StatCardProps {
     isPositive: boolean;
   };
   className?: string;
+  onClick?: () => void;
 }
 
-export function StatCard({ title, value, icon: Icon, trend, className = '' }: StatCardProps) {
+export function StatCard({ title, value, icon: Icon, trend, className = '', onClick }: StatCardProps) {
+  const clickable = typeof onClick === 'function';
   return (
-    <div className={`bg-white rounded-lg border border-gray-200 p-6 ${className}`}>
+    <div
+      className={`bg-white rounded-lg border border-gray-200 p-6 ${
+        clickable ? 'cursor-pointer transition-shadow hover:shadow-md hover:border-blue-300' : ''
+      } ${className}`}
+      onClick={onClick}
+      role={clickable ? 'button' : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      onKeyDown={
+        clickable
+          ? (e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onClick?.();
+              }
+            }
+          : undefined
+      }
+    >
       <div className="flex items-center justify-between">
         <div className="flex-1">
           <p className="text-sm font-medium text-gray-600">{title}</p>

@@ -33,8 +33,11 @@ export const apiClient = {
   runAnalysis: () => api.post('/analyze'),
 
   // Findings
-  getFindings: (params?: { scanId?: string; severity?: string; type?: string; status?: string }) =>
+  getFindings: (params?: { scanId?: string; severity?: string; type?: string; status?: string; runId?: string }) =>
     api.get('/findings', { params }),
+
+  // Drift runs (base -> target comparisons for a scan)
+  getDriftRuns: () => api.get('/drift-runs'),
 
   // Resources
   getResources: (params?: { scanId?: string; source?: string }) =>

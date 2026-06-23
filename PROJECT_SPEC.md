@@ -62,6 +62,30 @@ Build a working MVP that demonstrates end-to-end drift detection and reporting:
 
 ---
 
+## Operating Modes
+
+The application runs in one of two mutually exclusive modes, controlled by the `DEMO_MODE` environment variable on the backend. Both modes expose the **exact same UI, routes, and feature set** — only the underlying data source changes.
+
+### Mock Mode (`DEMO_MODE=true`) — default
+
+- Uses **pre-generated mock data only**. No AWS SDK calls, no LLM/Anthropic API calls, no Terraform CLI execution, and no other external or network dependencies.
+- Data is loaded from `backend/data/mock/` (seeded into SQLite) and the sample files in `examples/`.
+- **All functionality must remain visible and fully working**: dashboard statistics and charts, findings list with filtering/search, drift detail panels, graph views (Planned / Terraform / Deployed), report generation (HTML/JSON), and download. No feature may be hidden, disabled, or stubbed out in mock mode.
+- Reasoning is supplied by deterministic templates (`generatedBy: "deterministic"`).
+- Guarantees the demo never hard-fails due to missing credentials or API keys.
+
+### Live Mode (`DEMO_MODE=false`)
+
+- Uses real inputs: `architecture.yaml` (intent), `terraform show -json` output (Terraform state), and AWS read-only SDK inventory — with automatic mock-inventory fallback when no AWS credentials are present.
+- LLM reasoning via the Anthropic API when `ANTHROPIC_API_KEY` is set; otherwise it degrades to the same deterministic templates used in mock mode.
+- Identical screens, navigation, and interactions to mock mode.
+
+### Mode Parity Requirement
+
+The UI is mode-agnostic. Switching modes changes only the data being analyzed, never the available functionality. Any feature demonstrated in mock mode must also exist in live mode, and vice versa.
+
+---
+
 ## Architecture Overview
 
 ### System Architecture
@@ -274,25 +298,26 @@ architecture-drift-copilot/
 │
 ├── backend/                     # Node.js + Express backend
 │   ├── src/
-│   │   ├── agents/            # Agent implementations
+│   │   ├── agents/            # Agent implementations (PLANNED — Milestone 6)
 │   │   │   ├── design-intent-agent.ts
 │   │   │   ├── terraform-state-agent.ts
 │   │   │   ├── aws-inventory-agent.ts
 │   │   │   ├── drift-analysis-agent.ts
 │   │   │   └── reasoning-agent.ts
 │   │   ├── api/               # Express routes
-│   │   │   ├── health.ts
-│   │   │   ├── analyze.ts
-│   │   │   ├── findings.ts
-│   │   │   ├── reports.ts
-│   │   │   └── resources.ts
+│   │   │   └── index.ts       # All REST routes (current)
 │   │   ├── db/                # Database
 │   │   │   ├── schema.ts      # Drizzle schema
-│   │   │   └── client.ts
+│   │   │   ├── seed.ts        # Mock data seeding
+│   │   │   └── index.ts       # Drizzle client
 │   │   ├── services/          # Business logic
-│   │   ├── utils/             # Utilities
+│   │   │   └── analysis.ts    # Analysis orchestration (mock-backed)
 │   │   ├── types/             # Shared types
-│   │   └── server.ts
+│   │   │   └── shared.ts
+│   │   └── server.ts          # Express app entry point
+│   ├── data/
+│   │   ├── artifact-drift.db  # SQLite database
+│   │   └── mock/              # Mock data for mock mode
 │   ├── package.json
 │   └── tsconfig.json
 │
@@ -588,26 +613,26 @@ Example:
 ## Deliverables
 
 ### Code Deliverables
-1. ✅ Working frontend application
-2. ✅ Working backend API
-3. ✅ Agent implementations
-4. ✅ Database schema and migrations
+1. ✅ Working frontend application (mock-backed)
+2. ✅ Working backend API (mock-backed)
+3. ⏳ Agent implementations (planned — currently mock data only; see `STATUS.md` Milestone 6)
+4. ✅ Database schema and seed (Drizzle + SQLite)
 5. ✅ Example data files
 
 ### Documentation Deliverables
-1. ✅ README.md with setup instructions
+1. ✅ README.md with setup instructions + demo script
 2. ✅ PROJECT_SPEC.md (this file)
 3. ✅ BUILD_PLAN.md with milestones
 4. ✅ SECURITY.md with whitelist specification
 5. ✅ Agent specifications (docs/agents/)
-6. ✅ Mermaid architecture diagrams
+6. ⏳ Mermaid architecture diagram (planned — docs/architecture.md)
 
 ### Demo Deliverables
 1. ✅ Example architecture.yaml
 2. ✅ Example terraform-state.json
 3. ✅ Example aws-mock-inventory.json
-4. ✅ Example generated report
-5. ✅ Demo script
+4. ✅ Example generated report (examples/example-report.html, examples/example-report.json)
+5. ✅ Demo script (README.md)
 
 ---
 

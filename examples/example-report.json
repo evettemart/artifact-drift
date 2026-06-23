@@ -1,0 +1,219 @@
+{
+  "report": {
+    "title": "Architecture Drift Report",
+    "generatedAt": "2026-06-23T10:00:05Z",
+    "mode": "mock",
+    "note": "Example report generated in mock mode from examples/ and backend/data/mock/. Reasoning is deterministic (no LLM)."
+  },
+  "scanId": "scan-mock-2026-06-23",
+  "projectId": "default",
+  "startedAt": "2026-06-23T10:00:00Z",
+  "completedAt": "2026-06-23T10:00:05Z",
+  "durationMs": 5432,
+  "complianceScore": 57,
+  "status": "completed",
+  "statistics": {
+    "totalFindings": 8,
+    "bySeverity": {
+      "critical": 0,
+      "high": 3,
+      "medium": 3,
+      "low": 1,
+      "info": 1
+    },
+    "byType": {
+      "missing": 1,
+      "unmanaged": 1,
+      "changed_outside_terraform": 1,
+      "attribute_mismatch": 1,
+      "tag_mismatch": 1,
+      "configuration_drift": 1,
+      "relationship_broken": 1,
+      "version_mismatch": 1
+    },
+    "byStatus": {
+      "open": 8,
+      "acknowledged": 0,
+      "resolved": 0,
+      "suppressed": 0
+    }
+  },
+  "sources": {
+    "intent": {
+      "type": "yaml",
+      "path": "examples/architecture.yaml",
+      "resourceCount": 8
+    },
+    "terraform": {
+      "type": "state",
+      "path": "examples/terraform-state.json",
+      "resourceCount": 7,
+      "version": "1.5.0"
+    },
+    "aws": {
+      "type": "mock",
+      "path": "examples/aws-mock-inventory.json",
+      "resourceCount": 7,
+      "region": "us-east-1"
+    }
+  },
+  "config": {
+    "enableLLMReasoning": false,
+    "regions": ["us-east-1"],
+    "detectUnmanaged": true
+  },
+  "findings": [
+    {
+      "driftId": "drift-001",
+      "driftType": "missing",
+      "severity": "high",
+      "status": "open",
+      "resourceType": "subnet",
+      "provider": "aws",
+      "region": "us-east-1",
+      "logicalName": "private-subnet-1b",
+      "diffSummary": "Subnet 'private-subnet-1b' (10.0.2.0/24) defined in architecture and Terraform but not found in AWS",
+      "detectedAt": "2026-06-23T10:00:02Z",
+      "reasoning": {
+        "summary": "Private subnet missing from AWS deployment",
+        "likelyCause": "Subnet was defined in Terraform but never applied, or was manually deleted from AWS console",
+        "impact": "High availability architecture is incomplete. Resources intended for private subnet cannot be deployed.",
+        "terraformRemediation": "Run `terraform apply` to create the missing subnet.",
+        "generatedBy": "deterministic"
+      }
+    },
+    {
+      "driftId": "drift-002",
+      "driftType": "unmanaged",
+      "severity": "medium",
+      "status": "open",
+      "resourceType": "security_group",
+      "provider": "aws",
+      "region": "us-east-1",
+      "logicalName": "debug-sg",
+      "diffSummary": "Security group 'debug-sg' exists in AWS but is not managed by Terraform",
+      "detectedAt": "2026-06-23T10:00:02Z",
+      "reasoning": {
+        "summary": "Unmanaged security group found in AWS",
+        "likelyCause": "Security group was created manually in AWS console for debugging purposes and never added to Terraform",
+        "impact": "Security group is not version controlled and could be accidentally deleted or modified without tracking",
+        "terraformRemediation": "Import the security group into Terraform with `terraform import`, or remove it if no longer needed.",
+        "generatedBy": "deterministic"
+      }
+    },
+    {
+      "driftId": "drift-003",
+      "driftType": "changed_outside_terraform",
+      "severity": "high",
+      "status": "open",
+      "resourceType": "security_group",
+      "provider": "aws",
+      "region": "us-east-1",
+      "logicalName": "web-sg",
+      "diffSummary": "Security group 'web-sg' has port 22 (SSH) open to 0.0.0.0/0, which is not defined in Terraform",
+      "detectedAt": "2026-06-23T10:00:03Z",
+      "reasoning": {
+        "summary": "SSH port opened manually, creating security risk",
+        "likelyCause": "Administrator opened SSH port for debugging but forgot to close it or add to Terraform",
+        "impact": "Critical security vulnerability - SSH exposed to internet. This violates security best practices and could allow unauthorized access.",
+        "terraformRemediation": "Run `terraform apply` to remove the SSH rule, or add it properly with a restricted internal CIDR.",
+        "generatedBy": "deterministic"
+      }
+    },
+    {
+      "driftId": "drift-004",
+      "driftType": "attribute_mismatch",
+      "severity": "medium",
+      "status": "open",
+      "resourceType": "ec2_instance",
+      "provider": "aws",
+      "region": "us-east-1",
+      "logicalName": "web-server",
+      "diffSummary": "Instance type mismatch: intent=t3.medium, terraform=t3.small, aws=t3.large",
+      "detectedAt": "2026-06-23T10:00:03Z",
+      "reasoning": {
+        "summary": "EC2 instance type differs across all three sources",
+        "likelyCause": "Instance was resized manually in AWS (to t3.large), but Terraform state shows t3.small, and architecture intent specifies t3.medium",
+        "impact": "Cost implications - running larger instance than planned. Also indicates configuration management issues.",
+        "terraformRemediation": "Decide on the correct instance type, update Terraform to match intent (t3.medium), and apply.",
+        "generatedBy": "deterministic"
+      }
+    },
+    {
+      "driftId": "drift-005",
+      "driftType": "tag_mismatch",
+      "severity": "low",
+      "status": "open",
+      "resourceType": "vpc",
+      "provider": "aws",
+      "region": "us-east-1",
+      "logicalName": "main-vpc",
+      "diffSummary": "VPC missing 'Environment' tag in AWS (present in intent and Terraform)",
+      "detectedAt": "2026-06-23T10:00:04Z",
+      "reasoning": {
+        "summary": "Environment tag removed from VPC",
+        "likelyCause": "Tag was manually removed in AWS console or through CLI",
+        "impact": "Low - affects resource organization and cost allocation tracking",
+        "terraformRemediation": "Run `terraform apply` to restore the missing tag (no resource recreation needed).",
+        "generatedBy": "deterministic"
+      }
+    },
+    {
+      "driftId": "drift-006",
+      "driftType": "configuration_drift",
+      "severity": "medium",
+      "status": "open",
+      "resourceType": "alb",
+      "provider": "aws",
+      "region": "us-east-1",
+      "logicalName": "web-alb",
+      "diffSummary": "Load balancer idle timeout changed from 60s to 120s",
+      "detectedAt": "2026-06-23T10:00:04Z",
+      "reasoning": {
+        "summary": "ALB idle timeout configuration drifted",
+        "likelyCause": "Timeout was increased manually to handle long-running requests",
+        "impact": "May affect connection handling and resource utilization",
+        "terraformRemediation": "Update Terraform to match the current configuration or revert to the original idle timeout.",
+        "generatedBy": "deterministic"
+      }
+    },
+    {
+      "driftId": "drift-007",
+      "driftType": "relationship_broken",
+      "severity": "high",
+      "status": "open",
+      "resourceType": "subnet",
+      "provider": "aws",
+      "region": "us-east-1",
+      "logicalName": "database-subnet-1c",
+      "diffSummary": "Database subnet not associated with private route table as specified in architecture",
+      "detectedAt": "2026-06-23T10:00:04Z",
+      "reasoning": {
+        "summary": "Subnet routing relationship broken",
+        "likelyCause": "Route table association was removed or never created",
+        "impact": "Database subnet may not have correct routing, affecting connectivity",
+        "terraformRemediation": "Create the missing `aws_route_table_association` between the database subnet and the private route table.",
+        "generatedBy": "deterministic"
+      }
+    },
+    {
+      "driftId": "drift-008",
+      "driftType": "version_mismatch",
+      "severity": "info",
+      "status": "open",
+      "resourceType": "provider",
+      "provider": "aws",
+      "region": "us-east-1",
+      "logicalName": "hashicorp/aws",
+      "diffSummary": "Terraform AWS provider version in state (1.5.0) may differ from current version",
+      "detectedAt": "2026-06-23T10:00:05Z",
+      "reasoning": {
+        "summary": "Provider version tracking",
+        "likelyCause": "Informational - tracking provider version used",
+        "impact": "Minimal - but important for reproducibility",
+        "terraformRemediation": "Pin the AWS provider version in the `required_providers` block.",
+        "generatedBy": "deterministic"
+      }
+    }
+  ]
+}
