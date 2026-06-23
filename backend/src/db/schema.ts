@@ -1,5 +1,29 @@
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 
+export const projects = sqliteTable('projects', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  projectId: text('project_id').notNull().unique(),
+  name: text('name').notNull(),
+  description: text('description'),
+  status: text('status').notNull().default('active'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+});
+
+export const integrations = sqliteTable('integrations', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  integrationId: text('integration_id').notNull().unique(),
+  projectId: text('project_id').notNull(),
+  name: text('name').notNull(),
+  type: text('type').notNull(), // 'terraform', 'aws', 'architecture'
+  status: text('status').notNull().default('active'),
+  configJson: text('config_json').notNull(),
+  credentialsJson: text('credentials_json'),
+  lastSyncAt: text('last_sync_at'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+});
+
 export const scans = sqliteTable('scans', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   scanId: text('scan_id').notNull().unique(),
@@ -52,6 +76,10 @@ export const resources = sqliteTable('resources', {
   createdAt: text('created_at').notNull(),
 });
 
+export type ProjectRow = typeof projects.$inferSelect;
+export type NewProjectRow = typeof projects.$inferInsert;
+export type IntegrationRow = typeof integrations.$inferSelect;
+export type NewIntegrationRow = typeof integrations.$inferInsert;
 export type ScanRow = typeof scans.$inferSelect;
 export type NewScanRow = typeof scans.$inferInsert;
 export type FindingRow = typeof findings.$inferSelect;

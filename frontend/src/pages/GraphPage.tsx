@@ -82,25 +82,15 @@ export function GraphPage() {
     return colors[type] || colors.default;
   };
 
-  // Filter nodes by source
+  // Get data for active tab
   const getFilteredData = useCallback(() => {
     if (!graphData) return { nodes: [], edges: [] };
 
-    const sourceMap: Record<string, string> = {
-      planned: 'intent',
-      terraform: 'terraform',
-      deployed: 'aws',
-    };
+    // Graph data is already separated by view
+    const viewData = graphData[activeTab];
+    if (!viewData) return { nodes: [], edges: [] };
 
-    const filteredNodes = graphData.nodes.filter(
-      (node: any) => node.source === sourceMap[activeTab]
-    );
-    const filteredNodeIds = new Set(filteredNodes.map((n: any) => n.id));
-    const filteredEdges = graphData.edges.filter(
-      (edge: any) => filteredNodeIds.has(edge.source) && filteredNodeIds.has(edge.target)
-    );
-
-    return transformToFlowData(filteredNodes, filteredEdges);
+    return transformToFlowData(viewData.nodes || [], viewData.edges || []);
   }, [graphData, activeTab, transformToFlowData]);
 
   const { nodes: flowNodes, edges: flowEdges } = getFilteredData();
