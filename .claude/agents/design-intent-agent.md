@@ -2,11 +2,11 @@
 
 ## Overview
 
-The **DesignIntentAgent** is responsible for parsing and normalizing the approved architecture intent from `architecture.yaml` files. It serves as the source of truth for what the infrastructure *should* look like according to the approved design.
+The **DesignIntentAgent** is responsible for parsing and normalizing the approved architecture intent from `architecture.png and jpg` files. It serves as the source of truth for what the infrastructure *should* look like according to the approved design.
 
 ### Responsibilities
 
-1. Parse and validate `architecture.yaml` files
+1. Parse and validate `architecture.png` and `architecture.jpg` files
 2. Normalize architecture definitions into the internal `NormalizedResource` schema
 3. Extract resource relationships and dependencies
 4. Provide a placeholder interface for future Confluence integration

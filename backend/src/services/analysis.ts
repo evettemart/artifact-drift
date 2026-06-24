@@ -1,7 +1,6 @@
 import { existsSync, readFileSync } from 'fs';
 import { createHash } from 'crypto';
 import { join } from 'path';
-import yaml from 'yaml';
 import { eq } from 'drizzle-orm';
 import {
   Provider,
@@ -17,7 +16,6 @@ import type {
   DriftFinding,
   NormalizedResource,
   ReasoningResult,
-  ResourceRelationship,
   ScanResult,
   ScanStatistics,
 } from '../types/shared';
@@ -29,24 +27,7 @@ import {
 } from '../db/schema';
 import { fetchAwsInventory } from './agents/awsInventory';
 import type { InventorySource } from './agents/awsInventory';
-
-interface ArchitectureResourceInput {
-  type: string;
-  name: string;
-  attributes?: Record<string, unknown>;
-  tags?: Record<string, string>;
-  relationships?: Array<{ type: string; target: string }>;
-}
-
-interface ArchitectureIntentInput {
-  version: string;
-  metadata: Record<string, unknown>;
-  provider?: {
-    name?: string;
-    region?: string;
-  };
-  resources: ArchitectureResourceInput[];
-}
+import { parseDesignIntentFromFileSync } from './agents/designIntent';
 
 interface TerraformStateInput {
   terraform_version?: string;
@@ -111,42 +92,9 @@ function mapResourceType(type: string): ResourceType {
   return mapping[normalized] ?? ResourceType.PROVIDER;
 }
 
-function buildRelationships(
-  relationships: Array<{ type: string; target: string }> | undefined,
-  targetType: ResourceType = ResourceType.SUBNET
-): ResourceRelationship[] {
-  return (relationships ?? []).map((relationship) => ({
-    type: relationship.type as RelationshipType,
-    targetLogicalName: relationship.target,
-    targetType,
-  }));
-}
-
 function parseArchitectureIntent(): NormalizedResource[] {
   const filePath = examplesPath('architecture.yaml');
-  const content = readFileSync(filePath, 'utf-8');
-  const parsed = yaml.parse(content) as ArchitectureIntentInput;
-  const checksum = sha(content);
-  const region = parsed.provider?.region ?? 'us-east-1';
-  const capturedAt = nowIso();
-
-  return parsed.resources.map((resource) => ({
-    id: `intent-${resource.type}-${resource.name}`,
-    logicalName: resource.name,
-    type: mapResourceType(resource.type),
-    provider: Provider.AWS,
-    region,
-    source: ResourceSource.INTENT,
-    attributes: resource.attributes ?? {},
-    tags: resource.tags ?? {},
-    relationships: buildRelationships(resource.relationships),
-    sensitiveRedacted: false,
-    metadata: {
-      capturedAt,
-      sourceLocation: 'examples/architecture.yaml',
-      sourceChecksum: checksum,
-    },
-  }));
+  return parseDesignIntentFromFileSync(filePath, true);
 }
 
 function parseTerraformState(): NormalizedResource[] {

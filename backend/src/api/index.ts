@@ -282,7 +282,7 @@ router.get('/health', (_req: Request, res: Response) => {
 });
 
 // Get all projects
-router.get('/projects', async (req: Request, res: Response) => {
+router.get('/projects', async (_req: Request, res: Response) => {
   try {
     const allProjects = await db.select().from(projects);
     if (allProjects.length > 0) {
@@ -594,10 +594,10 @@ router.get('/projects/:projectId', async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Project not found' });
     }
     
-    res.json(project[0]);
+    return res.json(project[0]);
   } catch (error) {
     console.error('Error in project endpoint:', error);
-    res.status(500).json({ error: 'Failed to fetch project' });
+    return res.status(500).json({ error: 'Failed to fetch project' });
   }
 });
 
@@ -801,7 +801,7 @@ router.delete('/integrations/:integrationId', async (req: Request, res: Response
 });
 
 // Run analysis (mock mode)
-router.post('/analyze', async (req: Request, res: Response) => {
+router.post('/analyze', async (_req: Request, res: Response) => {
   try {
     const demoMode = process.env.DEMO_MODE === 'true';
     
