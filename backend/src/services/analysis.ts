@@ -875,6 +875,7 @@ export function runFullAnalysis(options: RunAnalysisOptions = {}): AnalysisArtif
 
   const scan: ScanResult = {
     scanId: 'scan-generated-latest',
+    workspaceId: 'default-workspace',
     projectId: 'demo-project',
     startedAt,
     completedAt,
@@ -955,6 +956,7 @@ export function persistAnalysis(artifacts: AnalysisArtifacts): void {
   db.insert(scans)
     .values({
       scanId: scan.scanId,
+      workspaceId: scan.workspaceId,
       projectId: scan.projectId,
       status: scan.status ?? 'completed',
       startedAt: scan.startedAt,

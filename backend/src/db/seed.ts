@@ -1,7 +1,7 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { db } from './index';
-import { findings, scans, projects, integrations } from './schema';
+import { findings, scans, projects, integrations, workspaces } from './schema';
 import type { DriftFinding, ScanResult } from '../types/shared';
 
 interface FindingsPayload {
@@ -24,6 +24,7 @@ export function seedMockData(): void {
   db.delete(findings).run();
   db.delete(scans).run();
   db.delete(integrations).run();
+  db.delete(workspaces).run();
   db.delete(projects).run();
 
   // Seed project
@@ -90,9 +91,26 @@ export function seedMockData(): void {
     ])
     .run();
 
+  // Seed workspace
+  db.insert(workspaces)
+    .values({
+      workspaceId: scanResult.workspaceId,
+      projectId: 'demo-project',
+      name: 'Demo Workspace',
+      description: 'Primary workspace for demo project',
+      status: 'active',
+      configJson: JSON.stringify({
+        selectedIntegrationIds: ['int-terraform-1', 'int-aws-1', 'int-arch-1'],
+      }),
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+
   db.insert(scans)
     .values({
       scanId: scanResult.scanId,
+      workspaceId: scanResult.workspaceId,
       projectId: scanResult.projectId,
       status: scanResult.status ?? 'completed',
       startedAt: scanResult.startedAt,

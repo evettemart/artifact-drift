@@ -20,8 +20,17 @@ interface ProjectRow {
   projectId: string;
   name: string;
 }
+interface WorkspaceRow {
+  workspaceId: string;
+  projectId: string;
+  name: string;
+  description: string | null;
+  status: string;
+  createdAt: string;
+}
 interface ScanRow {
   scanId: string;
+  workspaceId: string;
   projectId: string;
   name?: string;
   startedAt?: string;
@@ -84,14 +93,27 @@ export function DriftPage() {
     queryFn: async () => (await apiClient.getProjects()).data as ProjectRow[],
   });
   const [projectId, setProjectId] = useState<string>();
+  const [workspaceId, setWorkspaceId] = useState<string>();
   const [scanId, setScanId] = useState<string>();
   const [runId, setRunId] = useState<string>();
 
-  const { data: scansData = [] } = useQuery({
-    queryKey: ['settings-scans', projectId],
+  const { data: workspacesData = [] } = useQuery({
+    queryKey: ['workspaces', projectId],
     queryFn: async () =>
-      (await apiClient.getSettingsScans({ projectId: projectId as string })).data as ScanRow[],
+      (await apiClient.getWorkspaces({ projectId: projectId as string })).data as WorkspaceRow[],
     enabled: Boolean(projectId),
+  });
+
+  const { data: scansData = [] } = useQuery({
+    queryKey: ['settings-scans', workspaceId],
+    queryFn: async () => {
+      if (!projectId) return [];
+      const response = await apiClient.getSettingsScans({ projectId });
+      const allScans = response.data as ScanRow[];
+      // Filter scans by workspace
+      return allScans.filter((scan) => scan.workspaceId === workspaceId);
+    },
+    enabled: Boolean(workspaceId),
   });
   const { data: runsData } = useQuery({
     queryKey: ['drift-runs', scanId],
@@ -106,6 +128,7 @@ export function DriftPage() {
   });
 
   const projects = projectsData ?? [];
+  const workspaces = workspacesData ?? [];
   const scans = scansData ?? [];
   const runs = runsData?.runs ?? [];
   const findings = useMemo(() => {
@@ -142,6 +165,26 @@ export function DriftPage() {
 
   useEffect(() => {
     if (!projectId) {
+      setWorkspaceId(undefined);
+      setScanId(undefined);
+      setRunId(undefined);
+      return;
+    }
+    if (workspaces.length === 0) {
+      setWorkspaceId(undefined);
+      setScanId(undefined);
+      setRunId(undefined);
+      return;
+    }
+    if (!workspaceId || !workspaces.some((w) => w.workspaceId === workspaceId)) {
+      setWorkspaceId(workspaces[0].workspaceId);
+      setScanId(undefined);
+      setRunId(undefined);
+    }
+  }, [projectId, workspaces, workspaceId]);
+
+  useEffect(() => {
+    if (!workspaceId) {
       setScanId(undefined);
       setRunId(undefined);
       return;
@@ -155,7 +198,7 @@ export function DriftPage() {
       setScanId(scans[0].scanId);
       setRunId(undefined);
     }
-  }, [projectId, scans, scanId]);
+  }, [workspaceId, scans, scanId]);
 
   useEffect(() => {
     if (runId && !runs.some((r) => r.id === runId)) {
@@ -257,6 +300,15 @@ export function DriftPage() {
           projectId={projectId}
           onProjectChange={(id) => {
             setProjectId(id || undefined);
+            setWorkspaceId(undefined);
+            setScanId(undefined);
+            setRunId(undefined);
+            setSelectedId(null);
+          }}
+          workspaces={workspaces}
+          workspaceId={workspaceId}
+          onWorkspaceChange={(id) => {
+            setWorkspaceId(id || undefined);
             setScanId(undefined);
             setRunId(undefined);
             setSelectedId(null);
@@ -279,15 +331,21 @@ export function DriftPage() {
         />
       </div>
 
-      {projectId && scans.length === 0 && (
+      {projectId && workspaces.length === 0 && (
         <div className="mt-4 rounded-lg border border-dashed border-slate-700 p-4 text-sm text-slate-400">
           No workspaces found for this project.
         </div>
       )}
 
+      {workspaceId && scans.length === 0 && (
+        <div className="mt-4 rounded-lg border border-dashed border-slate-700 p-4 text-sm text-slate-400">
+          No scans found for this workspace.
+        </div>
+      )}
+
       {scanId && runs.length === 0 && (
         <div className="mt-4 rounded-lg border border-dashed border-slate-700 p-4 text-sm text-slate-400">
-          No scan runs found for this workspace.
+          No comparisons found for this scan.
         </div>
       )}
 

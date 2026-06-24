@@ -268,6 +268,7 @@ export interface ScanConfig {
 
 export interface ScanResult {
   scanId: string;
+  workspaceId: string;
   projectId: string;
   startedAt: string;
   completedAt: string;

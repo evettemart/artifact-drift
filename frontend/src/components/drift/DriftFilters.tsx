@@ -12,6 +12,12 @@ interface ProjectOption {
   name: string;
 }
 
+interface WorkspaceOption {
+  workspaceId: string;
+  name: string;
+  description?: string | null;
+}
+
 interface ScanOption {
   scanId: string;
   name?: string;
@@ -43,7 +49,7 @@ function toggle<T>(list: T[], value: T): T[] {
 const SELECT_CLS =
   'rounded-md border border-slate-700 bg-slate-800 px-3 py-1.5 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-500/40';
 
-function workspaceLabel(scan: ScanOption, index: number): string {
+function scanLabel(scan: ScanOption, index: number): string {
   const name = scan.name || scan.scanId;
   const time = scan.startedAt ? new Date(scan.startedAt).toLocaleString() : null;
   return index === 0 ? `${name}${time ? ` · ${time}` : ''}` : `${name}${time ? ` · ${time}` : ''}`;
@@ -53,6 +59,9 @@ export function DriftFilters({
   projects,
   projectId,
   onProjectChange,
+  workspaces,
+  workspaceId,
+  onWorkspaceChange,
   scans,
   scanId,
   onScanChange,
@@ -65,6 +74,9 @@ export function DriftFilters({
   projects: ProjectOption[];
   projectId: string | undefined;
   onProjectChange: (id: string) => void;
+  workspaces: WorkspaceOption[];
+  workspaceId: string | undefined;
+  onWorkspaceChange: (id: string) => void;
   scans: ScanOption[];
   scanId: string | undefined;
   onScanChange: (id: string) => void;
@@ -99,16 +111,16 @@ export function DriftFilters({
         <label className="flex items-center gap-2 text-[11px] uppercase tracking-wide text-slate-400">
           Workspace
           <select
-            value={scanId ?? ''}
-            onChange={(e) => onScanChange(e.target.value)}
+            value={workspaceId ?? ''}
+            onChange={(e) => onWorkspaceChange(e.target.value)}
             className={SELECT_CLS}
           >
-            {scans.length === 0 ? (
+            {workspaces.length === 0 ? (
               <option value="">No workspaces available</option>
             ) : (
-              scans.map((scan, index) => (
-                <option key={scan.scanId} value={scan.scanId}>
-                  {workspaceLabel(scan, index)}
+              workspaces.map((workspace) => (
+                <option key={workspace.workspaceId} value={workspace.workspaceId}>
+                  {workspace.name}
                 </option>
               ))
             )}
@@ -116,7 +128,26 @@ export function DriftFilters({
         </label>
 
         <label className="flex items-center gap-2 text-[11px] uppercase tracking-wide text-slate-400">
-          Scan run
+          Scan
+          <select
+            value={scanId ?? ''}
+            onChange={(e) => onScanChange(e.target.value)}
+            className={SELECT_CLS}
+          >
+            {scans.length === 0 ? (
+              <option value="">No scans available</option>
+            ) : (
+              scans.map((scan, index) => (
+                <option key={scan.scanId} value={scan.scanId}>
+                  {scanLabel(scan, index)}
+                </option>
+              ))
+            )}
+          </select>
+        </label>
+
+        <label className="flex items-center gap-2 text-[11px] uppercase tracking-wide text-slate-400">
+          Comparison
           <select
             value={runId ?? ''}
             onChange={(e) => onRunChange(e.target.value)}

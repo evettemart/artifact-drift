@@ -25,6 +25,16 @@ export const apiClient = {
   getProjects: () => api.get('/projects'),
   getProject: (projectId: string) => api.get(`/projects/${projectId}`),
 
+  // Workspaces
+  getWorkspaces: (params: { projectId: string }) =>
+    api.get('/workspaces', { params }),
+  getWorkspace: (workspaceId: string) => api.get(`/workspaces/${workspaceId}`),
+  createWorkspace: (data: {
+    projectId: string;
+    name: string;
+    description?: string;
+  }) => api.post('/workspaces', data),
+
   // Integrations
   getIntegrations: (params?: { projectId?: string }) =>
     api.get('/integrations', { params }),
@@ -38,7 +48,7 @@ export const apiClient = {
     api.delete(`/integrations/${integrationId}`),
 
   // Analysis
-  runAnalysis: () => api.post('/analyze'),
+  runAnalysis: (data?: { scanId?: string }) => api.post('/analyze', data),
 
   // Findings
   getFindings: (params?: {

@@ -21,15 +21,21 @@ interface ProjectRow {
 }
 
 interface WorkspaceRow {
-  scanId: string;
+  workspaceId: string;
   projectId: string;
-  name?: string;
-  createdAt?: string;
+  name: string;
+  description: string | null;
+  status: string;
+  createdAt: string;
 }
 
-interface DriftRunRow {
-  id: string;
-  label: string;
+interface ScanRow {
+  scanId: string;
+  workspaceId: string;
+  projectId: string;
+  name: string;
+  status: string;
+  createdAt: string;
 }
 
 const nodeTypes = {};
@@ -41,7 +47,7 @@ export function GraphPage() {
   const [activeTab, setActiveTab] = useState<'planned' | 'terraform' | 'deployed'>('planned');
   const [projectId, setProjectId] = useState<string>('');
   const [workspaceId, setWorkspaceId] = useState<string>('');
-  const [runId, setRunId] = useState<string>('');
+  const [scanId, setScanId] = useState<string>('');
 
   const { data: projects = [] } = useQuery({
     queryKey: ['projects'],
@@ -49,26 +55,25 @@ export function GraphPage() {
   });
 
   const { data: workspaces = [] } = useQuery({
-    queryKey: ['settings-scans', projectId],
+    queryKey: ['workspaces', projectId],
     queryFn: async () =>
-      (await apiClient.getSettingsScans({ projectId })).data as WorkspaceRow[],
+      (await apiClient.getWorkspaces({ projectId })).data as WorkspaceRow[],
     enabled: Boolean(projectId),
   });
 
-  const { data: runsData } = useQuery({
-    queryKey: ['drift-runs', workspaceId],
+  const { data: scans = [] } = useQuery({
+    queryKey: ['settings-scans', workspaceId],
     queryFn: async () =>
-      (await apiClient.getDriftRuns({ scanId: workspaceId })).data as { runs: DriftRunRow[] },
+      (await apiClient.getSettingsScans({ projectId })).data as ScanRow[],
     enabled: Boolean(workspaceId),
+    select: (data) => data.filter((scan: ScanRow) => scan.workspaceId === workspaceId),
   });
 
-  const runs = runsData?.runs ?? [];
-
-  const shouldLoadGraph = Boolean(projectId && workspaceId && runId);
+  const shouldLoadGraph = Boolean(projectId && workspaceId && scanId);
   const { data: graphData, isLoading, error } = useQuery({
-    queryKey: ['graph', workspaceId, runId],
+    queryKey: ['graph', scanId],
     queryFn: async () => {
-      const response = await apiClient.getGraph({ scanId: workspaceId });
+      const response = await apiClient.getGraph({ scanId });
       return response.data;
     },
     enabled: shouldLoadGraph,
@@ -77,20 +82,24 @@ export function GraphPage() {
   useEffect(() => {
     if (!projectId) {
       setWorkspaceId('');
-      setRunId('');
+      setScanId('');
       return;
     }
-    if (workspaceId && !workspaces.some((w) => w.scanId === workspaceId)) {
+    if (workspaceId && !workspaces.some((w) => w.workspaceId === workspaceId)) {
       setWorkspaceId('');
-      setRunId('');
+      setScanId('');
     }
   }, [projectId, workspaces, workspaceId]);
 
   useEffect(() => {
-    if (runId && !runs.some((run) => run.id === runId)) {
-      setRunId('');
+    if (!workspaceId) {
+      setScanId('');
+      return;
     }
-  }, [runId, runs]);
+    if (scanId && !scans.some((scan) => scan.scanId === scanId)) {
+      setScanId('');
+    }
+  }, [workspaceId, scans, scanId]);
 
   const getNodeColor = (type: string) => {
     const colors: Record<string, string> = {
@@ -203,8 +212,8 @@ export function GraphPage() {
                 <option value="">No workspaces available</option>
               ) : (
                 workspaces.map((workspace) => (
-                  <option key={workspace.scanId} value={workspace.scanId}>
-                    {workspace.name || workspace.scanId}
+                  <option key={workspace.workspaceId} value={workspace.workspaceId}>
+                    {workspace.name}
                   </option>
                 ))
               )}
@@ -212,19 +221,19 @@ export function GraphPage() {
           </label>
 
           <label className="flex flex-col gap-1 text-xs uppercase tracking-wide text-slate-400">
-            Scan run
+            Scan
             <select
-              value={runId}
-              onChange={(event) => setRunId(event.target.value)}
+              value={scanId}
+              onChange={(event) => setScanId(event.target.value)}
               className={SELECT_CLS}
             >
-              <option value="">Select scan run...</option>
-              {runs.length === 0 ? (
-                <option value="">No scan runs available</option>
+              <option value="">Select scan...</option>
+              {scans.length === 0 ? (
+                <option value="">No scans available</option>
               ) : (
-                runs.map((run) => (
-                  <option key={run.id} value={run.id}>
-                    {run.label}
+                scans.map((scan) => (
+                  <option key={scan.scanId} value={scan.scanId}>
+                    {scan.name}
                   </option>
                 ))
               )}
@@ -235,7 +244,7 @@ export function GraphPage() {
 
       {!shouldLoadGraph && (
         <div className="rounded-xl border border-dashed border-slate-700 bg-slate-900/40 p-10 text-center text-sm text-slate-400">
-          Select project, workspace, and scan run to view graph data.
+          Select project, workspace, and scan to view graph data.
         </div>
       )}
 

@@ -10,6 +10,18 @@ export const projects = sqliteTable('projects', {
   updatedAt: text('updated_at').notNull(),
 });
 
+export const workspaces = sqliteTable('workspaces', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  workspaceId: text('workspace_id').notNull().unique(),
+  projectId: text('project_id').notNull(),
+  name: text('name').notNull(),
+  description: text('description'),
+  status: text('status').notNull().default('active'),
+  configJson: text('config_json'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+});
+
 export const integrations = sqliteTable('integrations', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   integrationId: text('integration_id').notNull().unique(),
@@ -27,6 +39,7 @@ export const integrations = sqliteTable('integrations', {
 export const scans = sqliteTable('scans', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   scanId: text('scan_id').notNull().unique(),
+  workspaceId: text('workspace_id').notNull(),
   projectId: text('project_id').notNull(),
   status: text('status'),
   startedAt: text('started_at').notNull(),
@@ -78,6 +91,8 @@ export const resources = sqliteTable('resources', {
 
 export type ProjectRow = typeof projects.$inferSelect;
 export type NewProjectRow = typeof projects.$inferInsert;
+export type WorkspaceRow = typeof workspaces.$inferSelect;
+export type NewWorkspaceRow = typeof workspaces.$inferInsert;
 export type IntegrationRow = typeof integrations.$inferSelect;
 export type NewIntegrationRow = typeof integrations.$inferInsert;
 export type ScanRow = typeof scans.$inferSelect;

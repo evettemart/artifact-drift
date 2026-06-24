@@ -1,20 +1,14 @@
 import { FormEvent, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CheckCircle2, Pencil, Plus, Save, Search, Settings2, Sparkles, Trash2, X } from 'lucide-react';
+import { Plus, Search, Trash2, X } from 'lucide-react';
 import { api } from '../lib/api';
 
 interface ConfiguredIntegration {
   id: string;
-  kind: string;
+  integrationId: string;
+  type: string;
   name: string;
   projectId: string;
-}
-
-interface IntegrationOption {
-  id: string;
-  kind: string;
-  name: string;
-  label: string;
 }
 
 interface SettingsProject {
@@ -26,17 +20,14 @@ interface SettingsProject {
   scanCount: number;
 }
 
-interface SettingsScan {
-  scanId: string;
+interface SettingsWorkspace {
+  workspaceId: string;
   projectId: string;
   name: string;
+  description: string | null;
   status: string;
   createdAt: string;
-  selectedIntegrations: string[];
-  outputPlan: {
-    driftItems: string;
-    graphOutputs: number;
-  };
+  selectedIntegrationIds?: string[];
 }
 
 const INPUT_CLS =
@@ -73,18 +64,10 @@ export function SettingsPage() {
   const [projectName, setProjectName] = useState('');
   const [projectDescription, setProjectDescription] = useState('');
 
-  const [scanName, setScanName] = useState('');
-  const [selectedIntegrations, setSelectedIntegrations] = useState<string[]>([]);
-  const [selectedIntegrationNamesByKind, setSelectedIntegrationNamesByKind] = useState<
-    Record<string, string>
-  >({});
+  const [workspaceName, setWorkspaceName] = useState('');
+  const [workspaceDescription, setWorkspaceDescription] = useState('');
+  const [selectedIntegrationIds, setSelectedIntegrationIds] = useState<string[]>([]);
   const [integrationSearch, setIntegrationSearch] = useState('');
-  const [editingScanId, setEditingScanId] = useState<string | null>(null);
-  const [editIntegrations, setEditIntegrations] = useState<string[]>([]);
-  const [editIntegrationNamesByKind, setEditIntegrationNamesByKind] = useState<
-    Record<string, string>
-  >({});
-  const [editSearch, setEditSearch] = useState('');
 
   const { data: projects = [], isLoading: projectsLoading } = useQuery({
     queryKey: ['settings-projects'],
@@ -110,78 +93,44 @@ export function SettingsPage() {
     });
   }, [projects, projectSearch]);
 
-  const { data: configuredIntegrations = [] } = useQuery({
-    queryKey: ['settings-integrations-all'],
+  const { data: projectIntegrations = [] } = useQuery({
+    queryKey: ['project-integrations', selectedProjectId],
     queryFn: async () => {
       const response = await api.get('/integrations');
       return response.data as ConfiguredIntegration[];
     },
+    enabled: Boolean(selectedProjectId),
   });
-
-  const integrationOptions = useMemo<IntegrationOption[]>(() => {
-    return configuredIntegrations.map((integration) => ({
-      id: integration.id,
-      kind: integration.kind,
-      name: integration.name,
-      label: integration.name,
-    }));
-  }, [configuredIntegrations]);
-
-  const fallbackIntegrationNameByKind = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const option of integrationOptions) {
-      if (!map.has(option.kind)) {
-        map.set(option.kind, option.name);
-      }
-    }
-    return map;
-  }, [integrationOptions]);
-
-  function getIntegrationDisplayName(kind: string, namesByKind?: Record<string, string>): string {
-    return namesByKind?.[kind] ?? fallbackIntegrationNameByKind.get(kind) ?? kind;
-  }
 
   const filteredIntegrationOptions = useMemo(() => {
     const q = integrationSearch.trim().toLowerCase();
-    return integrationOptions.filter((option) => {
-      if (selectedIntegrations.includes(option.kind)) {
+    return projectIntegrations.filter((integration) => {
+      if (selectedIntegrationIds.includes(integration.integrationId)) {
         return false;
       }
       if (!q) {
         return true;
       }
       return (
-        option.label.toLowerCase().includes(q) ||
-        option.name.toLowerCase().includes(q) ||
-        option.kind.toLowerCase().includes(q)
+        integration.name.toLowerCase().includes(q) ||
+        integration.type.toLowerCase().includes(q)
       );
     });
-  }, [integrationOptions, integrationSearch, selectedIntegrations]);
+  }, [projectIntegrations, integrationSearch, selectedIntegrationIds]);
 
-  const filteredEditOptions = useMemo(() => {
-    const q = editSearch.trim().toLowerCase();
-    return integrationOptions.filter((option) => {
-      if (editIntegrations.includes(option.kind)) {
-        return false;
-      }
-      if (!q) {
-        return true;
-      }
-      return (
-        option.label.toLowerCase().includes(q) ||
-        option.name.toLowerCase().includes(q) ||
-        option.kind.toLowerCase().includes(q)
-      );
-    });
-  }, [integrationOptions, editSearch, editIntegrations]);
+  const selectedIntegrations = useMemo(() => {
+    return projectIntegrations.filter((integration) =>
+      selectedIntegrationIds.includes(integration.integrationId)
+    );
+  }, [projectIntegrations, selectedIntegrationIds]);
 
-  const { data: scans = [], isLoading: scansLoading } = useQuery({
-    queryKey: ['settings-scans', selectedProjectId],
+  const { data: workspaces = [], isLoading: workspacesLoading } = useQuery({
+    queryKey: ['workspaces', selectedProjectId],
     queryFn: async () => {
-      const response = await api.get('/settings/scans', {
+      const response = await api.get('/workspaces', {
         params: { projectId: selectedProjectId },
       });
-      return response.data as SettingsScan[];
+      return response.data as SettingsWorkspace[];
     },
     enabled: Boolean(selectedProjectId),
   });
@@ -200,21 +149,23 @@ export function SettingsPage() {
     },
   });
 
-  const createScan = useMutation({
+  const createWorkspace = useMutation({
     mutationFn: async (payload: {
       projectId: string;
       name: string;
-      selectedIntegrations: string[];
+      description?: string;
+      selectedIntegrationIds?: string[];
     }) => {
-      const response = await api.post('/settings/scans', payload);
-      return response.data as SettingsScan;
+      const response = await api.post('/workspaces', payload);
+      return response.data as SettingsWorkspace;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['settings-projects'] });
-      queryClient.invalidateQueries({ queryKey: ['settings-scans', selectedProjectId] });
-      setScanName('');
-      setSelectedIntegrations([]);
-      setSelectedIntegrationNamesByKind({});
+      queryClient.invalidateQueries({ queryKey: ['workspaces', selectedProjectId] });
+      setWorkspaceName('');
+      setWorkspaceDescription('');
+      setSelectedIntegrationIds([]);
+      setIntegrationSearch('');
     },
   });
 
@@ -232,19 +183,14 @@ export function SettingsPage() {
     },
   });
 
-  const updateScan = useMutation({
-    mutationFn: async (payload: { scanId: string; selectedIntegrations: string[] }) => {
-      const response = await api.patch(`/settings/scans/${payload.scanId}`, {
-        selectedIntegrations: payload.selectedIntegrations,
-      });
-      return response.data as SettingsScan;
+  const deleteIntegration = useMutation({
+    mutationFn: async (integrationId: string) => {
+      await api.delete(`/integrations/${integrationId}`);
+      return integrationId;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['settings-scans', selectedProjectId] });
-      setEditingScanId(null);
-      setEditIntegrations([]);
-      setEditIntegrationNamesByKind({});
-      setEditSearch('');
+      queryClient.invalidateQueries({ queryKey: ['project-integrations', selectedProjectId] });
+      queryClient.invalidateQueries({ queryKey: ['integrations'] });
     },
   });
 
@@ -260,61 +206,35 @@ export function SettingsPage() {
     });
   }
 
-  function toggleIntegration(kind: string, name: string) {
-    setSelectedIntegrations((prev) =>
-      prev.includes(kind) ? prev.filter((item) => item !== kind) : [...prev, kind]
+  function toggleIntegration(integrationId: string) {
+    setSelectedIntegrationIds((prev) =>
+      prev.includes(integrationId)
+        ? prev.filter((id) => id !== integrationId)
+        : [...prev, integrationId]
     );
-    setSelectedIntegrationNamesByKind((prev) => {
-      if (selectedIntegrations.includes(kind)) {
-        const { [kind]: _removed, ...rest } = prev;
-        return rest;
-      }
-      return { ...prev, [kind]: name };
-    });
   }
 
-  function startEditingScan(scan: SettingsScan) {
-    setEditingScanId(scan.scanId);
-    setEditIntegrations(scan.selectedIntegrations);
-    const namesByKind: Record<string, string> = {};
-    for (const kind of scan.selectedIntegrations) {
-      namesByKind[kind] = getIntegrationDisplayName(kind);
-    }
-    setEditIntegrationNamesByKind(namesByKind);
-    setEditSearch('');
-  }
-
-  function toggleEditIntegration(kind: string, name: string) {
-    setEditIntegrations((prev) =>
-      prev.includes(kind) ? prev.filter((item) => item !== kind) : [...prev, kind]
-    );
-    setEditIntegrationNamesByKind((prev) => {
-      if (editIntegrations.includes(kind)) {
-        const { [kind]: _removed, ...rest } = prev;
-        return rest;
-      }
-      return { ...prev, [kind]: name };
-    });
-  }
-
-  function saveEditedScan(scanId: string) {
-    if (editIntegrations.length === 0) {
-      return;
-    }
-    updateScan.mutate({ scanId, selectedIntegrations: editIntegrations });
-  }
-
-  function submitScan(event: FormEvent<HTMLFormElement>) {
+  function submitWorkspace(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!selectedProjectId || !scanName.trim() || selectedIntegrations.length === 0) {
+    if (!selectedProjectId || !workspaceName.trim()) {
       return;
     }
 
-    createScan.mutate({
+    createWorkspace.mutate({
       projectId: selectedProjectId,
-      name: scanName.trim(),
-      selectedIntegrations,
+      name: workspaceName.trim(),
+      description: workspaceDescription.trim() || undefined,
+      selectedIntegrationIds: selectedIntegrationIds.length > 0 ? selectedIntegrationIds : undefined,
     });
+  }
+
+  function handleDeleteIntegration(integration: ConfiguredIntegration) {
+    const confirmed = window.confirm(
+      `Delete integration "${integration.name}"? This will affect all workspaces using it.`
+    );
+    if (confirmed) {
+      deleteIntegration.mutate(integration.id);
+    }
   }
 
   function handleDeleteProject(project: SettingsProject) {
@@ -329,9 +249,9 @@ export function SettingsPage() {
   return (
     <div className="space-y-6">
       <div className="rounded-xl border border-slate-800 bg-slate-950 p-6 text-slate-100">
-        <h1 className="text-xl font-semibold">Projects</h1>
+        <h1 className="text-xl font-semibold">Projects & Workspaces</h1>
         <p className="mt-1 text-sm text-slate-400">
-          Create projects first, then define workspaces for each project and choose which integrations each workspace uses.
+          Create projects, define workspaces, and configure integrations for each project.
         </p>
       </div>
 
@@ -398,9 +318,9 @@ export function SettingsPage() {
                     className="flex-1 text-left"
                   >
                     <p className="text-sm font-medium text-slate-100">{project.name}</p>
-                    <p className="mt-1 text-xs text-slate-400">
-                      {project.scanCount} {project.scanCount === 1 ? 'workspace' : 'workspaces'}
-                    </p>
+                    {project.description && (
+                      <p className="mt-1 text-xs text-slate-400">{project.description}</p>
+                    )}
                   </button>
                   <button
                     onClick={() => handleDeleteProject(project)}
@@ -418,11 +338,13 @@ export function SettingsPage() {
         </section>
 
         <section className="rounded-xl border border-slate-800 bg-slate-950 p-5 text-slate-100">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-300">Workspaces</h2>
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-300">
+            Workspaces & Integrations
+          </h2>
 
           {!selectedProject && (
             <div className="mt-4 rounded-lg border border-dashed border-slate-700 p-5 text-sm text-slate-400">
-              Select a project to configure workspaces.
+              Select a project to configure workspaces and integrations.
             </div>
           )}
 
@@ -435,22 +357,33 @@ export function SettingsPage() {
                 )}
               </div>
 
-              <form className="mt-4 space-y-4" onSubmit={submitScan}>
+              <form className="mt-4 space-y-4" onSubmit={submitWorkspace}>
                 <div>
                   <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-400">
                     Workspace name
                   </label>
                   <input
-                    value={scanName}
-                    onChange={(event) => setScanName(event.target.value)}
+                    value={workspaceName}
+                    onChange={(event) => setWorkspaceName(event.target.value)}
                     className={INPUT_CLS}
-                    placeholder="e.g. nightly-architecture-workspace"
+                    placeholder="e.g. Production Environment"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-400">
+                    Description (optional)
+                  </label>
+                  <textarea
+                    value={workspaceDescription}
+                    onChange={(event) => setWorkspaceDescription(event.target.value)}
+                    className={`${INPUT_CLS} min-h-[60px] resize-none`}
+                    placeholder="Describe this workspace..."
                   />
                 </div>
 
                 <div>
                   <label className="mb-2 block text-xs font-medium uppercase tracking-wide text-slate-400">
-                    Integrations selected by this workspace
+                    Select integrations for this workspace (optional)
                   </label>
                   <div className="space-y-2">
                     <div className="relative">
@@ -459,183 +392,146 @@ export function SettingsPage() {
                         value={integrationSearch}
                         onChange={(event) => setIntegrationSearch(event.target.value)}
                         className="w-full rounded-md border border-slate-700 bg-slate-900 py-2 pl-8 pr-3 text-sm text-slate-100 placeholder:text-slate-500 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/30"
-                        placeholder="Search configured integrations..."
+                        placeholder="Search integrations..."
                       />
                     </div>
 
-                    <div className="flex flex-wrap gap-2">
-                      {selectedIntegrations.map((kind) => (
-                        <button
-                          key={kind}
-                          type="button"
-                          onClick={() =>
-                            toggleIntegration(
-                              kind,
-                              getIntegrationDisplayName(kind, selectedIntegrationNamesByKind)
-                            )
-                          }
-                          className="inline-flex items-center gap-1 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 text-xs text-emerald-200"
-                        >
-                          {getIntegrationDisplayName(kind, selectedIntegrationNamesByKind)}
-                          <X className="h-3 w-3" />
-                        </button>
-                      ))}
-                    </div>
+                    {selectedIntegrations.length > 0 && (
+                      <div className="flex flex-wrap gap-2">
+                        {selectedIntegrations.map((integration) => (
+                          <button
+                            key={integration.integrationId}
+                            type="button"
+                            onClick={() => toggleIntegration(integration.integrationId)}
+                            className="inline-flex items-center gap-1 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 text-xs text-emerald-200"
+                          >
+                            {integration.name}
+                            <X className="h-3 w-3" />
+                          </button>
+                        ))}
+                      </div>
+                    )}
 
-                    <div className="grid gap-2 sm:grid-cols-2">
-                      {filteredIntegrationOptions.map((option) => (
-                        <button
-                          key={option.id}
-                          type="button"
-                          onClick={() => toggleIntegration(option.kind, option.name)}
-                          className="rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-2 text-left text-sm text-slate-300 transition hover:border-slate-700"
-                        >
-                          <span className="font-medium">{option.label}</span>
-                        </button>
-                      ))}
-                    </div>
-
-                    {integrationOptions.length === 0 && (
+                    {projectIntegrations.length === 0 && (
                       <p className="text-xs text-slate-500">
-                        No configured integrations found.
+                        No integrations available. Add integrations below to enable workspace scanning.
                       </p>
+                    )}
+
+                    {filteredIntegrationOptions.length > 0 && (
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        {filteredIntegrationOptions.map((integration) => (
+                          <button
+                            key={integration.integrationId}
+                            type="button"
+                            onClick={() => toggleIntegration(integration.integrationId)}
+                            className="rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-2 text-left text-sm text-slate-300 transition hover:border-slate-700"
+                          >
+                            <span className="font-medium">{integration.name}</span>
+                            <span className="ml-2 text-xs text-slate-500">({integration.type})</span>
+                          </button>
+                        ))}
+                      </div>
                     )}
                   </div>
                 </div>
 
                 <button
                   type="submit"
-                  disabled={createScan.isPending}
+                  disabled={createWorkspace.isPending}
                   className="inline-flex items-center gap-1.5 rounded-md bg-sky-600 px-3 py-2 text-sm font-medium text-white hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  <Settings2 className="h-4 w-4" />
-                  {createScan.isPending ? 'Creating workspace...' : 'Create workspace'}
+                  <Plus className="h-4 w-4" />
+                  {createWorkspace.isPending ? 'Creating...' : 'Create workspace'}
                 </button>
-                {createScan.isError && (
+                {createWorkspace.isError && (
                   <p className="text-xs text-red-400">
-                    {errorMessage(
-                      createScan.error,
-                      'Failed to create scan. Make sure a name and at least one integration are selected.'
-                    )}
+                    {errorMessage(createWorkspace.error, 'Failed to create workspace.')}
                   </p>
                 )}
               </form>
 
-              <div className="mt-6 space-y-3">
-                <h3 className="text-sm font-semibold text-slate-200">Configured workspaces</h3>
-                {scansLoading && <p className="text-sm text-slate-400">Loading workspaces...</p>}
-                {!scansLoading && scans.length === 0 && (
-                  <p className="text-sm text-slate-400">No workspaces configured for this project.</p>
+              <div className="mt-6 space-y-4">
+                <h3 className="text-sm font-semibold text-slate-200">Workspaces</h3>
+                {workspacesLoading && <p className="text-sm text-slate-400">Loading workspaces...</p>}
+                {!workspacesLoading && workspaces.length === 0 && (
+                  <p className="text-sm text-slate-400">No workspaces yet. Create one above.</p>
                 )}
-                {scans.map((scan) => (
-                  <article
-                    key={scan.scanId}
+                {workspaces.map((workspace) => (
+                  <div
+                    key={workspace.workspaceId}
                     className="rounded-lg border border-slate-800 bg-slate-900/60 p-4"
                   >
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <p className="text-sm font-semibold text-slate-100">{scan.name}</p>
-                      <div className="flex items-center gap-2">
-                        <span className="rounded-full border border-emerald-600/40 bg-emerald-600/10 px-2 py-0.5 text-xs text-emerald-300">
-                          {scan.status}
-                        </span>
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-semibold text-slate-100">{workspace.name}</p>
+                        {workspace.description && (
+                          <p className="mt-1 text-xs text-slate-400">{workspace.description}</p>
+                        )}
+                      </div>
+                      <span className="rounded-full border border-emerald-600/40 bg-emerald-600/10 px-2 py-0.5 text-xs text-emerald-300">
+                        {workspace.status}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-6 space-y-4">
+                <h3 className="text-sm font-semibold text-slate-200">Integrations</h3>
+                <p className="text-xs text-slate-400">
+                  Global integrations available to all projects and workspaces.
+                </p>
+                
+                {projectIntegrations.length === 0 && (
+                  <p className="text-sm text-slate-400">
+                    No integrations configured. Add integrations to enable scanning across all projects.
+                  </p>
+                )}
+                
+                {projectIntegrations.length > 0 && (
+                  <div className="space-y-2">
+                    {projectIntegrations.map((integration) => (
+                      <div
+                        key={integration.id}
+                        className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-900/60 px-4 py-3"
+                      >
+                        <div>
+                          <p className="text-sm font-medium text-slate-100">{integration.name}</p>
+                          <p className="text-xs text-slate-400">{integration.type}</p>
+                        </div>
                         <button
-                          type="button"
-                          onClick={() => startEditingScan(scan)}
-                          className="inline-flex items-center gap-1 rounded-md border border-slate-700 px-2 py-1 text-xs text-slate-300 hover:bg-slate-800"
+                          onClick={() => handleDeleteIntegration(integration)}
+                          disabled={deleteIntegration.isPending}
+                          className="rounded p-1.5 text-slate-500 transition hover:bg-red-500/15 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-50"
+                          aria-label={`Delete ${integration.name}`}
+                          title="Delete integration"
                         >
-                          <Pencil className="h-3 w-3" />
-                          Edit integrations
+                          <Trash2 className="h-4 w-4" />
                         </button>
                       </div>
-                    </div>
-                    <p className="mt-2 text-xs text-slate-400">
-                      Integrations:{' '}
-                      {scan.selectedIntegrations
-                        .map((kind) => getIntegrationDisplayName(kind, editIntegrationNamesByKind))
-                        .join(', ')}
-                    </p>
-
-                    {editingScanId === scan.scanId && (
-                      <div className="mt-3 space-y-2 rounded-md border border-slate-800 bg-slate-900/70 p-3">
-                        <div className="relative">
-                          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
-                          <input
-                            value={editSearch}
-                            onChange={(event) => setEditSearch(event.target.value)}
-                            className="w-full rounded-md border border-slate-700 bg-slate-900 py-2 pl-8 pr-3 text-sm text-slate-100 placeholder:text-slate-500 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/30"
-                            placeholder="Search configured integrations..."
-                          />
-                        </div>
-
-                        <div className="flex flex-wrap gap-2">
-                          {editIntegrations.map((kind) => (
-                            <button
-                              key={kind}
-                              type="button"
-                              onClick={() =>
-                                toggleEditIntegration(
-                                  kind,
-                                  getIntegrationDisplayName(kind, editIntegrationNamesByKind)
-                                )
-                              }
-                              className="inline-flex items-center gap-1 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 text-xs text-emerald-200"
-                            >
-                              {getIntegrationDisplayName(kind, editIntegrationNamesByKind)}
-                              <X className="h-3 w-3" />
-                            </button>
-                          ))}
-                        </div>
-
-                        <div className="grid gap-2 sm:grid-cols-2">
-                          {filteredEditOptions.map((option) => (
-                            <button
-                              key={option.id}
-                              type="button"
-                              onClick={() => toggleEditIntegration(option.kind, option.name)}
-                              className="rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-2 text-left text-sm text-slate-300 transition hover:border-slate-700"
-                            >
-                              <span className="font-medium">{option.label}</span>
-                            </button>
-                          ))}
-                        </div>
-
-                        <div className="flex items-center justify-end gap-2">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setEditingScanId(null);
-                              setEditIntegrations([]);
-                              setEditIntegrationNamesByKind({});
-                              setEditSearch('');
-                            }}
-                            className="rounded-md border border-slate-700 px-2 py-1 text-xs text-slate-300 hover:bg-slate-800"
-                          >
-                            Cancel
-                          </button>
-                          <button
-                            type="button"
-                            disabled={updateScan.isPending || editIntegrations.length === 0}
-                            onClick={() => saveEditedScan(scan.scanId)}
-                            className="inline-flex items-center gap-1 rounded-md bg-sky-600 px-2 py-1 text-xs font-medium text-white hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-60"
-                          >
-                            <Save className="h-3 w-3" />
-                            {updateScan.isPending ? 'Saving...' : 'Save'}
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                    <div className="mt-3 flex flex-wrap gap-2 text-xs">
-                      <span className="inline-flex items-center gap-1 rounded-full border border-slate-700 px-2 py-0.5 text-slate-300">
-                        <Sparkles className="h-3 w-3" />
-                        Drift items: {scan.outputPlan.driftItems}
-                      </span>
-                      <span className="inline-flex items-center gap-1 rounded-full border border-slate-700 px-2 py-0.5 text-slate-300">
-                        <CheckCircle2 className="h-3 w-3" />
-                        Graphs per integration: {scan.outputPlan.graphOutputs}
-                      </span>
-                    </div>
-                  </article>
-                ))}
+                    ))}
+                  </div>
+                )}
+                
+                <div className="rounded-lg border border-slate-800 bg-slate-900/50 p-4">
+                  <p className="text-xs font-medium uppercase tracking-wide text-slate-400 mb-3">
+                    Add Integration
+                  </p>
+                  <p className="text-xs text-slate-500 mb-3">
+                    Note: This is a simplified interface. Use the Integrations page for full configuration.
+                  </p>
+                  <button
+                    onClick={() => {
+                      // For now, just show a message. Full integration management should be on a dedicated page
+                      alert('Please use the Integrations page to add new integrations with full configuration options.');
+                    }}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-slate-700 px-3 py-2 text-sm text-slate-300 hover:bg-slate-800"
+                  >
+                    <Plus className="h-4 w-4" />
+                    Add integration
+                  </button>
+                </div>
               </div>
             </>
           )}

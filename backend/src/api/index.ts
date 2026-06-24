@@ -4,6 +4,7 @@ import { db } from '../db';
 import {
   scans,
   projects,
+  workspaces,
   integrations,
   findings as findingsTable,
   resources as resourcesTable,
@@ -282,7 +283,7 @@ router.get('/health', (_req: Request, res: Response) => {
 });
 
 // Get all projects
-router.get('/projects', async (req: Request, res: Response) => {
+router.get('/projects', async (_req: Request, res: Response) => {
   try {
     const allProjects = await db.select().from(projects);
     if (allProjects.length > 0) {
@@ -392,6 +393,139 @@ router.get('/settings/projects', async (_req: Request, res: Response) => {
     console.error('Error in settings projects endpoint:', error);
     res.status(500).json({ error: 'Failed to fetch settings projects' });
   }
+// Get workspaces for a project
+router.get('/workspaces', async (req: Request, res: Response) => {
+  try {
+    const projectId = String(req.query.projectId ?? '').trim();
+    
+    if (!projectId) {
+      return res.status(400).json({ error: 'projectId is required' });
+    }
+
+    const projectWorkspaces = await db
+      .select()
+      .from(workspaces)
+      .where(eq(workspaces.projectId, projectId))
+      .orderBy(desc(workspaces.createdAt));
+
+    // Parse configJson to extract selectedIntegrationIds
+    const workspacesWithConfig = projectWorkspaces.map((workspace) => {
+      const config = parseJson<{ selectedIntegrationIds?: string[] }>(workspace.configJson, {});
+      return {
+        ...workspace,
+        selectedIntegrationIds: config.selectedIntegrationIds || [],
+      };
+    });
+
+    return res.json(workspacesWithConfig);
+  } catch (error) {
+    console.error('Error fetching workspaces:', error);
+    return res.status(500).json({ error: 'Failed to fetch workspaces' });
+  }
+});
+
+// Get workspace by ID
+router.get('/workspaces/:workspaceId', async (req: Request, res: Response) => {
+  try {
+    const workspaceId = String(req.params.workspaceId ?? '').trim();
+    
+    if (!workspaceId) {
+      return res.status(400).json({ error: 'workspaceId is required' });
+    }
+
+    const workspace = await db
+      .select()
+      .from(workspaces)
+      .where(eq(workspaces.workspaceId, workspaceId))
+      .limit(1);
+
+    if (workspace.length === 0) {
+      return res.status(404).json({ error: 'Workspace not found' });
+    }
+
+    const config = parseJson<{ selectedIntegrationIds?: string[] }>(workspace[0].configJson, {});
+    return res.json({
+      ...workspace[0],
+      selectedIntegrationIds: config.selectedIntegrationIds || [],
+    });
+  } catch (error) {
+    console.error('Error fetching workspace:', error);
+    return res.status(500).json({ error: 'Failed to fetch workspace' });
+  }
+});
+
+// Create workspace
+router.post('/workspaces', async (req: Request, res: Response) => {
+  try {
+    const projectId = String(req.body?.projectId ?? '').trim();
+    const name = String(req.body?.name ?? '').trim();
+    const description = String(req.body?.description ?? '').trim();
+    const selectedIntegrationIds = Array.isArray(req.body?.selectedIntegrationIds)
+      ? req.body.selectedIntegrationIds.filter((id: unknown) => typeof id === 'string' && id.trim())
+      : [];
+
+    if (!projectId) {
+      return res.status(400).json({ error: 'projectId is required' });
+    }
+
+    if (!name) {
+      return res.status(400).json({ error: 'name is required' });
+    }
+
+    // Verify project exists
+    const project = await db
+      .select()
+      .from(projects)
+      .where(eq(projects.projectId, projectId))
+      .limit(1);
+
+    if (project.length === 0) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+
+    const now = new Date().toISOString();
+    const workspaceId = `ws-${Date.now().toString(36)}`;
+
+    const configJson = JSON.stringify({
+      selectedIntegrationIds,
+    });
+
+    await db.insert(workspaces).values({
+      workspaceId,
+      projectId,
+      name,
+      description: description || null,
+      status: 'active',
+      configJson,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    return res.status(201).json({
+      workspaceId,
+      projectId,
+      name,
+      description: description || null,
+      status: 'active',
+      selectedIntegrationIds,
+      createdAt: now,
+      updatedAt: now,
+    });
+  } catch (error) {
+    console.error('Error creating workspace:', error);
+    if (
+      error &&
+      typeof error === 'object' &&
+      'message' in error &&
+      typeof (error as { message?: string }).message === 'string' &&
+      (error as { message: string }).message.toLowerCase().includes('unique')
+    ) {
+      return res.status(409).json({ error: 'A workspace with this identifier already exists' });
+    }
+    return res.status(500).json({ error: 'Failed to create workspace' });
+  }
+});
+
 });
 
 // Settings view of scans for a project
@@ -416,6 +550,7 @@ router.get('/settings/scans', async (req: Request, res: Response) => {
 
       return {
         scanId: scan.scanId,
+        workspaceId: scan.workspaceId,
         projectId: scan.projectId,
         name: config.name ?? scan.scanId,
         status: scan.status ?? 'configured',
@@ -439,6 +574,7 @@ router.get('/settings/scans', async (req: Request, res: Response) => {
 router.post('/settings/scans', async (req: Request, res: Response) => {
   try {
     const projectId = String(req.body?.projectId ?? '').trim();
+    const workspaceId = String(req.body?.workspaceId ?? '').trim();
     const name = String(req.body?.name ?? '').trim();
     const selectedIntegrationsRaw = req.body?.selectedIntegrations;
     const selectedIntegrations = Array.isArray(selectedIntegrationsRaw)
@@ -449,6 +585,10 @@ router.post('/settings/scans', async (req: Request, res: Response) => {
 
     if (!projectId) {
       return res.status(400).json({ error: 'projectId is required' });
+    }
+
+    if (!workspaceId) {
+      return res.status(400).json({ error: 'workspaceId is required' });
     }
 
     if (!name) {
@@ -473,6 +613,7 @@ router.post('/settings/scans', async (req: Request, res: Response) => {
 
     await db.insert(scans).values({
       scanId,
+      workspaceId,
       projectId,
       status: 'configured',
       startedAt: now,
@@ -490,6 +631,7 @@ router.post('/settings/scans', async (req: Request, res: Response) => {
 
     return res.status(201).json({
       scanId,
+      workspaceId,
       projectId,
       name,
       status: 'configured',
@@ -594,10 +736,10 @@ router.get('/projects/:projectId', async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Project not found' });
     }
     
-    res.json(project[0]);
+    return res.json(project[0]);
   } catch (error) {
     console.error('Error in project endpoint:', error);
-    res.status(500).json({ error: 'Failed to fetch project' });
+    return res.status(500).json({ error: 'Failed to fetch project' });
   }
 });
 
@@ -804,6 +946,7 @@ router.delete('/integrations/:integrationId', async (req: Request, res: Response
 router.post('/analyze', async (req: Request, res: Response) => {
   try {
     const demoMode = process.env.DEMO_MODE === 'true';
+    const scanId = req.body?.scanId;
     
     if (demoMode) {
       // Load mock scan result
@@ -814,8 +957,60 @@ router.post('/analyze', async (req: Request, res: Response) => {
       // Live mode: scan real AWS inventory (single region, mock fallback),
       // detect drift, persist the scan, and return the result.
       const artifacts = await runLiveAnalysis();
-      persistAnalysis(artifacts);
-      res.json(artifacts.scan);
+      
+      // If a scanId was provided, update that scan instead of creating a new one
+      if (scanId) {
+        const now = new Date().toISOString();
+        await db.update(scans)
+          .set({
+            status: 'completed',
+            completedAt: artifacts.scan.completedAt,
+            durationMs: artifacts.scan.durationMs,
+            complianceScore: Math.round(artifacts.scan.complianceScore),
+            statisticsJson: JSON.stringify(artifacts.scan.statistics),
+            sourcesJson: JSON.stringify(artifacts.scan.sources),
+            configJson: JSON.stringify(artifacts.scan.config),
+          })
+          .where(eq(scans.scanId, scanId))
+          .run();
+        
+        // Delete old findings for this scan
+        await db.delete(findingsTable).where(eq(findingsTable.scanId, scanId)).run();
+        
+        // Insert new findings with the provided scanId
+        if (artifacts.findings.length > 0) {
+          await db.insert(findingsTable)
+            .values(
+              artifacts.findings.map((finding) => ({
+                driftId: `${scanId}:${finding.driftId}`,
+                scanId: scanId,
+                driftType: String(finding.driftType),
+                severity: finding.severity,
+                status: finding.status,
+                resourceType: String(finding.resourceType),
+                provider: String(finding.provider),
+                region: finding.region,
+                logicalName: finding.logicalName,
+                diffSummary: finding.diffSummary,
+                expectedJson: finding.expected ? JSON.stringify(finding.expected) : null,
+                observedJson: finding.observed ? JSON.stringify(finding.observed) : null,
+                attributeDiffsJson: finding.attributeDiffs
+                  ? JSON.stringify(finding.attributeDiffs)
+                  : null,
+                reasoningJson: finding.reasoning ? JSON.stringify(finding.reasoning) : null,
+                detectedAt: finding.detectedAt,
+                createdAt: now,
+              }))
+            )
+            .run();
+        }
+        
+        res.json({ ...artifacts.scan, scanId });
+      } else {
+        // No scanId provided, use default behavior
+        persistAnalysis(artifacts);
+        res.json(artifacts.scan);
+      }
     }
   } catch (error) {
     console.error('Error in analyze endpoint:', error);

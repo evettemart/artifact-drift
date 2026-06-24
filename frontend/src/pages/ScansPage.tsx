@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { CheckCircle2, Clock3, Play } from 'lucide-react';
-import apiClient from '../lib/api';
+import apiClient, { api } from '../lib/api';
 
 interface ProjectRow {
   projectId: string;
@@ -10,12 +10,12 @@ interface ProjectRow {
 }
 
 interface WorkspaceRow {
-  scanId: string;
+  workspaceId: string;
   projectId: string;
   name: string;
+  description: string | null;
   status: string;
   createdAt: string;
-  selectedIntegrations: string[];
 }
 
 interface IntegrationRow {
@@ -46,6 +46,7 @@ export function ScansPage() {
   const [startedAt, setStartedAt] = useState<string | null>(null);
   const [finishedAt, setFinishedAt] = useState<string | null>(null);
   const [progressRows, setProgressRows] = useState<IntegrationProgress[]>([]);
+  const [lastCreatedScanId, setLastCreatedScanId] = useState<string | null>(null);
   const timerRef = useRef<number | null>(null);
 
   const { data: projects = [] } = useQuery({
@@ -57,9 +58,9 @@ export function ScansPage() {
   });
 
   const { data: workspaces = [] } = useQuery({
-    queryKey: ['settings-scans', selectedProjectId],
+    queryKey: ['workspaces', selectedProjectId],
     queryFn: async () => {
-      const response = await apiClient.getSettingsScans({ projectId: selectedProjectId });
+      const response = await apiClient.getWorkspaces({ projectId: selectedProjectId });
       return response.data as WorkspaceRow[];
     },
     enabled: Boolean(selectedProjectId),
@@ -68,16 +69,14 @@ export function ScansPage() {
   const { data: integrations = [] } = useQuery({
     queryKey: ['integrations', selectedProjectId],
     queryFn: async () => {
-      const response = await apiClient.getIntegrations(
-        selectedProjectId ? { projectId: selectedProjectId } : undefined
-      );
+      const response = await apiClient.getIntegrations();
       return response.data as IntegrationRow[];
     },
     enabled: Boolean(selectedProjectId),
   });
 
   const selectedWorkspace = useMemo(
-    () => workspaces.find((workspace) => workspace.scanId === selectedWorkspaceId) ?? null,
+    () => workspaces.find((ws) => ws.workspaceId === selectedWorkspaceId) ?? null,
     [selectedWorkspaceId, workspaces]
   );
 
@@ -104,6 +103,7 @@ export function ScansPage() {
     setProgressRows([]);
     setStartedAt(null);
     setFinishedAt(null);
+    setLastCreatedScanId(null);
     setIsRunning(false);
     if (timerRef.current !== null) {
       window.clearInterval(timerRef.current);
@@ -111,13 +111,27 @@ export function ScansPage() {
     }
   }, [selectedProjectId]);
 
-  function startScan() {
-    if (!selectedWorkspace || isRunning) {
+  useEffect(() => {
+    setProgressRows([]);
+    setStartedAt(null);
+    setFinishedAt(null);
+    setLastCreatedScanId(null);
+    setIsRunning(false);
+    if (timerRef.current !== null) {
+      window.clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+  }, [selectedWorkspaceId]);
+
+  async function startScan() {
+    if (!selectedWorkspaceId || !selectedProjectId || isRunning) {
       return;
     }
 
-    const kinds = selectedWorkspace.selectedIntegrations;
-    if (!Array.isArray(kinds) || kinds.length === 0) {
+    // Get all integrations for this project to include in the scan
+    const kinds = integrations.map((i) => i.kind);
+    if (kinds.length === 0) {
+      console.error('No integrations available for this project');
       return;
     }
 
@@ -135,51 +149,61 @@ export function ScansPage() {
       kind,
       label: integrationLabelByKind.get(kind) ?? kind,
       progress: 0,
-      status: 'queued',
+      status: 'running',
     }));
     setProgressRows(initialRows);
 
-    // Simulated scan progress per integration panel.
-    timerRef.current = window.setInterval(() => {
-      setProgressRows((prev) => {
-        const next: IntegrationProgress[] = prev.map((row) => {
-          if (row.status === 'completed') {
-            return row;
-          }
-          const increment = Math.floor(12 + Math.random() * 20);
-          const updatedProgress = Math.min(100, row.progress + increment);
-          const nextStatus: IntegrationProgress['status'] =
-            updatedProgress >= 100 ? 'completed' : 'running';
-          return {
-            ...row,
-            progress: updatedProgress,
-            status: nextStatus,
-          };
-        });
-
-        const allDone = next.length > 0 && next.every((row) => row.progress >= 100);
-        if (allDone) {
-          if (timerRef.current !== null) {
-            window.clearInterval(timerRef.current);
-            timerRef.current = null;
-          }
-          setIsRunning(false);
-          setFinishedAt(new Date().toISOString());
-        }
-
-        return next;
+    try {
+      // Create a new scan configuration
+      const scanName = `Scan ${new Date().toLocaleString()}`;
+      const createResponse = await api.post('/settings/scans', {
+        projectId: selectedProjectId,
+        workspaceId: selectedWorkspaceId,
+        name: scanName,
+        selectedIntegrations: kinds,
       });
-    }, 700);
+      
+      const newScanId = createResponse.data.scanId;
+      setLastCreatedScanId(newScanId);
+      
+      // Run the analysis with the new scan ID
+      console.log('Starting real analysis for new scan:', newScanId);
+      const response = await apiClient.runAnalysis({ scanId: newScanId });
+      console.log('Analysis complete:', response.data);
+
+      // Mark all integrations as completed
+      setProgressRows((prev) =>
+        prev.map((row) => ({
+          ...row,
+          progress: 100,
+          status: 'completed',
+        }))
+      );
+
+      setFinishedAt(new Date().toISOString());
+    } catch (error) {
+      console.error('Analysis failed:', error);
+      // Mark all integrations as failed
+      setProgressRows((prev) =>
+        prev.map((row) => ({
+          ...row,
+          progress: 0,
+          status: 'queued',
+        }))
+      );
+    } finally {
+      setIsRunning(false);
+    }
   }
 
-  const canRun = Boolean(selectedProjectId && selectedWorkspaceId && !isRunning);
+  const canRun = Boolean(selectedProjectId && selectedWorkspaceId && !isRunning && integrations.length > 0);
 
   return (
     <div className="space-y-6">
       <div className="rounded-xl border border-slate-800 bg-slate-950 p-6 text-slate-100">
         <h1 className="text-xl font-semibold">Scans</h1>
         <p className="mt-1 text-sm text-slate-400">
-          Select a project and workspace, then run a scan to track integration progress.
+          Select a project and workspace, then run a new scan to track integration progress.
         </p>
       </div>
 
@@ -209,19 +233,14 @@ export function ScansPage() {
             </label>
             <select
               value={selectedWorkspaceId}
-              onChange={(event) => {
-                setSelectedWorkspaceId(event.target.value);
-                setProgressRows([]);
-                setStartedAt(null);
-                setFinishedAt(null);
-              }}
+              onChange={(event) => setSelectedWorkspaceId(event.target.value)}
               disabled={!selectedProjectId}
               className="w-full rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/30 disabled:opacity-50"
             >
               {!selectedProjectId && <option value="">Select project first</option>}
               {selectedProjectId && <option value="">Select workspace...</option>}
               {workspaces.map((workspace) => (
-                <option key={workspace.scanId} value={workspace.scanId}>
+                <option key={workspace.workspaceId} value={workspace.workspaceId}>
                   {workspace.name}
                 </option>
               ))}
@@ -236,7 +255,7 @@ export function ScansPage() {
               className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-sky-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {isRunning ? <Clock3 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-              {isRunning ? 'Running scan...' : 'Run scan'}
+              {isRunning ? 'Running scan...' : 'Run new scan'}
             </button>
           </div>
         </div>
@@ -244,17 +263,17 @@ export function ScansPage() {
         {selectedWorkspace && (
           <div className="mt-4 rounded-lg border border-slate-800 bg-slate-900/50 p-3 text-sm text-slate-300">
             <p>
-              <span className="font-medium text-slate-100">Selected scan:</span> {selectedWorkspace.name}
+              <span className="font-medium text-slate-100">Selected workspace:</span> {selectedWorkspace.name}
             </p>
             <p className="mt-1 text-xs text-slate-400">
-              Integrations in workspace: {selectedWorkspace.selectedIntegrations.length}
+              Available integrations: {integrations.length}
             </p>
           </div>
         )}
 
-        {selectedWorkspace && selectedWorkspace.selectedIntegrations.length === 0 && (
+        {selectedWorkspaceId && integrations.length === 0 && (
           <p className="mt-4 text-sm text-amber-300">
-            This workspace has no integrations selected, so scan progress panels cannot start.
+            No integrations available. Please add integrations in the Projects page before running a scan.
           </p>
         )}
       </div>
@@ -294,17 +313,21 @@ export function ScansPage() {
         </div>
       )}
 
-      {!isRunning && startedAt && finishedAt && selectedWorkspace && (
+      {!isRunning && startedAt && finishedAt && lastCreatedScanId && (
         <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-6 text-emerald-100">
           <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-emerald-300">
             <CheckCircle2 className="h-4 w-4" />
             Scan Complete
           </div>
           <p className="mt-2 text-sm">
-            Scan <span className="font-semibold">{selectedWorkspace.name}</span> completed successfully.
+            New scan completed successfully in workspace <span className="font-semibold">{selectedWorkspace?.name}</span>.
           </p>
+          <p className="mt-1 text-xs text-emerald-200/90">Scan ID: {lastCreatedScanId}</p>
           <p className="mt-1 text-xs text-emerald-200/90">Start: {formatDateTime(startedAt)}</p>
           <p className="mt-1 text-xs text-emerald-200/90">Finish: {formatDateTime(finishedAt)}</p>
+          <p className="mt-2 text-xs text-emerald-200/90">
+            View results in the Drift page by selecting this scan.
+          </p>
         </div>
       )}
     </div>
