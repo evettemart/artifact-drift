@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/hashicorp-ai-hackathon/evidence-manifest.schema.json",
+  "title": "Hackathon Evidence Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "team",
+    "epic",
+    "submission",
+    "repo_access",
+    "artifacts",
+    "readiness_review",
+    "safety",
+    "known_gaps"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "2026-06-18"
+    },
+    "team": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "slug", "primary_contact", "members"],
+      "properties": {
+        "name": { "type": "string" },
+        "slug": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+        "primary_contact": { "type": "string" },
+        "members": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "epic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "source", "product_focus", "slug"],
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "source": { "type": "string", "enum": ["RTS", "EnterpriseOS", "Custom"] },
+        "product_focus": { "type": "string" },
+        "slug": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" }
+      }
+    },
+    "submission": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repo", "branch", "bundle_created_at", "reviewer_notes", "reuse_release_interest"],
+      "properties": {
+        "repo": { "type": "string" },
+        "branch": { "type": "string" },
+        "bundle_created_at": { "type": "string", "format": "date-time" },
+        "reviewer_notes": { "type": "string" },
+        "reuse_release_interest": { "type": "string", "enum": ["Yes", "No", "Maybe"] }
+      }
+    },
+    "repo_access": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["organizers_can_access", "access_notes"],
+      "properties": {
+        "organizers_can_access": { "type": "boolean" },
+        "access_notes": { "type": "string" }
+      }
+    },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "epic_md",
+        "team_profile_md",
+        "learning_notes_md",
+        "repo_summary_json",
+        "changed_files_txt",
+        "review_criteria_concern_md",
+        "primary_paths",
+        "notable_outputs",
+        "external_links"
+      ],
+      "properties": {
+        "epic_md": { "type": "string" },
+        "team_profile_md": { "type": "string" },
+        "learning_notes_md": { "type": "string" },
+        "repo_summary_json": { "type": "string" },
+        "changed_files_txt": { "type": "string" },
+        "review_criteria_concern_md": {
+          "type": ["string", "null"]
+        },
+        "primary_paths": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "notable_outputs": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "external_links": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "readiness_review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["present", "relative_path", "exported"],
+      "properties": {
+        "present": { "type": "boolean" },
+        "relative_path": { "type": "string" },
+        "exported": { "type": "boolean" }
+      }
+    },
+    "safety": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["real_customer_data_used", "real_secrets_used", "sensitive_data_concerns"],
+      "properties": {
+        "real_customer_data_used": { "type": "boolean" },
+        "real_secrets_used": { "type": "boolean" },
+        "sensitive_data_concerns": { "type": "string" }
+      }
+    },
+    "known_gaps": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}
