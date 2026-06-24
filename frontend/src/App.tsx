@@ -7,6 +7,7 @@ import { GraphPage } from './pages/GraphPage';
 import { IntegrationsPage } from './pages/IntegrationsPage';
 import { ReportsPage } from './pages/ReportsPage';
 import { SettingsPage } from './pages/SettingsPage';
+import { ScansPage } from './pages/ScansPage';
 
 function App() {
   return (
@@ -14,6 +15,7 @@ function App() {
       <Routes>
         <Route path="/" element={<DashboardPage />} />
         <Route path="/methodology" element={<MethodologyPage />} />
+        <Route path="/scans" element={<ScansPage />} />
         <Route path="/drift" element={<DriftPage />} />
         <Route path="/findings" element={<Navigate to="/drift" replace />} />
         <Route path="/graph" element={<GraphPage />} />

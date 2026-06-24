@@ -14,7 +14,15 @@ export const INTEGRATION_SCHEMAS: IntegrationKindSchema[] = [
     icon: Cloud,
     readOnly: true,
     fields: [
-      { key: 'account_id', label: 'Account ID', type: 'text', placeholder: '1234-5678-9012', required: true },
+      {
+        key: 'account_id',
+        label: 'Account ID',
+        type: 'text',
+        placeholder: '1234-5678-9012',
+        required: true,
+        // Not needed when reading credentials from the host environment.
+        showIf: (v) => v.credential_source !== 'Environment variables',
+      },
       {
         key: 'region',
         label: 'Region',
@@ -77,9 +85,46 @@ export const INTEGRATION_SCHEMAS: IntegrationKindSchema[] = [
     icon: FileCode2,
     readOnly: true,
     fields: [
-      { key: 'organization', label: 'Organization', type: 'text', placeholder: 'acme', required: true },
-      { key: 'workspace', label: 'Workspace', type: 'text', placeholder: 'prod-network', required: true },
-      { key: 'token', label: 'API Token', type: 'password', secret: true, required: true },
+      {
+        key: 'source',
+        label: 'State source',
+        type: 'select',
+        options: ['Terraform Cloud / Enterprise', 'State file (upload)'],
+        required: true,
+      },
+      {
+        key: 'organization',
+        label: 'Organization',
+        type: 'text',
+        placeholder: 'acme',
+        required: true,
+        showIf: (v) => v.source === 'Terraform Cloud / Enterprise',
+      },
+      {
+        key: 'workspace',
+        label: 'Workspace',
+        type: 'text',
+        placeholder: 'prod-network',
+        required: true,
+        showIf: (v) => v.source === 'Terraform Cloud / Enterprise',
+      },
+      {
+        key: 'token',
+        label: 'API Token',
+        type: 'password',
+        secret: true,
+        required: true,
+        showIf: (v) => v.source === 'Terraform Cloud / Enterprise',
+      },
+      {
+        key: 'state_file',
+        label: 'Terraform state file',
+        type: 'file',
+        accept: '.tfstate,.json',
+        required: true,
+        help: 'Upload a terraform.tfstate file (or `terraform show -json` output).',
+        showIf: (v) => v.source === 'State file (upload)',
+      },
     ],
   },
   {

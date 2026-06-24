@@ -51,3 +51,21 @@ export const LAYER_LABELS: Record<Layer, string> = {
 export function layerLabel(layer: Layer): string {
   return LAYER_LABELS[layer] ?? layer;
 }
+
+export interface IntegrationFileUpload {
+  name: string;
+  dataUrl: string;
+}
+
+/** Payload sent to the backend when creating or updating an integration. */
+export interface IntegrationPayload {
+  kind: string;
+  name: string;
+  layer: Layer;
+  /** Non-secret configuration values. */
+  config: Record<string, string>;
+  /** Secret values, stored server-side and never returned. */
+  secrets: Record<string, string>;
+  /** Uploaded files keyed by field name, base64 data-URL encoded. */
+  files: Record<string, IntegrationFileUpload>;
+}

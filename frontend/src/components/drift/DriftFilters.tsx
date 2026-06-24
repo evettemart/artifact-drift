@@ -14,6 +14,7 @@ interface ProjectOption {
 
 interface ScanOption {
   scanId: string;
+  name?: string;
   startedAt?: string;
   status?: string;
 }
@@ -42,9 +43,10 @@ function toggle<T>(list: T[], value: T): T[] {
 const SELECT_CLS =
   'rounded-md border border-slate-700 bg-slate-800 px-3 py-1.5 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-500/40';
 
-function scanLabel(scan: ScanOption, index: number): string {
-  const time = scan.startedAt ? new Date(scan.startedAt).toLocaleString() : scan.scanId;
-  return index === 0 ? `Latest · ${time}` : time;
+function workspaceLabel(scan: ScanOption, index: number): string {
+  const name = scan.name || scan.scanId;
+  const time = scan.startedAt ? new Date(scan.startedAt).toLocaleString() : null;
+  return index === 0 ? `${name}${time ? ` · ${time}` : ''}` : `${name}${time ? ` · ${time}` : ''}`;
 }
 
 export function DriftFilters({
@@ -82,26 +84,34 @@ export function DriftFilters({
             onChange={(e) => onProjectChange(e.target.value)}
             className={SELECT_CLS}
           >
-            {projects.map((project) => (
-              <option key={project.projectId} value={project.projectId}>
-                {project.name}
-              </option>
-            ))}
+            {projects.length === 0 ? (
+              <option value="">No projects available</option>
+            ) : (
+              projects.map((project) => (
+                <option key={project.projectId} value={project.projectId}>
+                  {project.name}
+                </option>
+              ))
+            )}
           </select>
         </label>
 
         <label className="flex items-center gap-2 text-[11px] uppercase tracking-wide text-slate-400">
-          Scan
+          Workspace
           <select
             value={scanId ?? ''}
             onChange={(e) => onScanChange(e.target.value)}
             className={SELECT_CLS}
           >
-            {scans.map((scan, index) => (
-              <option key={scan.scanId} value={scan.scanId}>
-                {scanLabel(scan, index)}
-              </option>
-            ))}
+            {scans.length === 0 ? (
+              <option value="">No workspaces available</option>
+            ) : (
+              scans.map((scan, index) => (
+                <option key={scan.scanId} value={scan.scanId}>
+                  {workspaceLabel(scan, index)}
+                </option>
+              ))
+            )}
           </select>
         </label>
 
@@ -112,12 +122,18 @@ export function DriftFilters({
             onChange={(e) => onRunChange(e.target.value)}
             className={SELECT_CLS}
           >
-            <option value="">All comparisons</option>
-            {runs.map((run) => (
-              <option key={run.id} value={run.id}>
-                {run.label}
-              </option>
-            ))}
+            {runs.length === 0 ? (
+              <option value="">No scan runs available</option>
+            ) : (
+              <>
+                <option value="">All comparisons</option>
+                {runs.map((run) => (
+                  <option key={run.id} value={run.id}>
+                    {run.label}
+                  </option>
+                ))}
+              </>
+            )}
           </select>
         </label>
 

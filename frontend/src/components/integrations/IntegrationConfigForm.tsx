@@ -11,10 +11,12 @@ export function IntegrationConfigForm({
   schema,
   values,
   onChange,
+  onFileChange,
 }: {
   schema: IntegrationKindSchema;
   values: ConfigValues;
   onChange: (values: ConfigValues) => void;
+  onFileChange: (key: string, file: File | null) => void;
 }) {
   function set(key: string, value: string) {
     onChange({ ...values, [key]: value });
@@ -28,6 +30,7 @@ export function IntegrationConfigForm({
           field={field}
           value={values[field.key] ?? ''}
           onChange={(v) => set(field.key, v)}
+          onFile={(file) => onFileChange(field.key, file)}
         />
       ))}
     </div>
@@ -38,10 +41,12 @@ function Field({
   field,
   value,
   onChange,
+  onFile,
 }: {
   field: ConfigField;
   value: string;
   onChange: (value: string) => void;
+  onFile: (file: File | null) => void;
 }) {
   if (field.type === 'note') {
     return (
@@ -84,7 +89,11 @@ function Field({
             type="file"
             accept={field.accept}
             className="hidden"
-            onChange={(e) => onChange(e.target.files?.[0]?.name ?? '')}
+            onChange={(e) => {
+              const file = e.target.files?.[0] ?? null;
+              onFile(file);
+              onChange(file?.name ?? '');
+            }}
           />
         </label>
       ) : (

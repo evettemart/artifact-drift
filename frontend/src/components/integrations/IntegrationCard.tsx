@@ -18,15 +18,17 @@ export function IntegrationCard({
   onTest,
   onEdit,
   onDelete,
+  workspaceUsageCount = 0,
 }: {
   integration: Integration;
   onTest: (id: string) => Promise<TestResult>;
   onEdit: (integration: Integration) => void;
   onDelete: (integration: Integration) => void;
+  workspaceUsageCount?: number;
 }) {
   const schema = schemaForKind(integration.kind);
   const Icon = schema?.icon ?? Plug;
-  const status = STATUS_META[integration.status];
+  const status = STATUS_META[integration.status] ?? STATUS_META.unconfigured;
   const [pending, setPending] = useState(false);
   const [result, setResult] = useState<TestResult | null>(null);
 
@@ -43,6 +45,7 @@ export function IntegrationCard({
   const configEntries = Object.entries(integration.config)
     .filter(([k]) => !k.startsWith('_'))
     .slice(0, 3);
+  const inUse = workspaceUsageCount > 0;
 
   return (
     <div className="flex flex-col rounded-xl border border-slate-800 bg-slate-900 p-5">
@@ -64,13 +67,18 @@ export function IntegrationCard({
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-1.5">
+        <div className="ml-2 flex shrink-0 items-center gap-1.5">
           <span className={`h-2 w-2 rounded-full ${status.dot}`} />
           <span className={`text-xs font-medium ${status.text}`}>{status.label}</span>
+          {inUse && (
+            <span className="rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-300">
+              In use ({workspaceUsageCount})
+            </span>
+          )}
           <div className="ml-1 flex items-center gap-0.5">
             <button
               onClick={() => onEdit(integration)}
-              className="rounded p-1 text-slate-500 hover:bg-slate-800 hover:text-slate-200"
+              className="flex h-6 w-6 items-center justify-center rounded border border-slate-700 bg-slate-800/60 text-slate-500 hover:bg-slate-800 hover:text-slate-200"
               aria-label={`Edit ${integration.name}`}
               title="Edit"
             >
@@ -78,9 +86,10 @@ export function IntegrationCard({
             </button>
             <button
               onClick={() => onDelete(integration)}
-              className="rounded p-1 text-slate-500 hover:bg-red-500/15 hover:text-red-400"
+              disabled={inUse}
+              className="flex h-6 w-6 items-center justify-center rounded border border-slate-700 bg-slate-800/60 text-slate-500 hover:bg-red-500/15 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-40"
               aria-label={`Delete ${integration.name}`}
-              title="Delete"
+              title={inUse ? 'Cannot delete while associated with a workspace' : 'Delete'}
             >
               <Trash2 className="h-3.5 w-3.5" />
             </button>

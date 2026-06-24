@@ -22,6 +22,8 @@ interface ProjectRow {
 }
 interface ScanRow {
   scanId: string;
+  projectId: string;
+  name?: string;
   startedAt?: string;
   status?: string;
 }
@@ -33,6 +35,47 @@ const EMPTY_FILTERS: DriftFilterState = {
   status: [],
 };
 
+type DriftLayer = 'planned' | 'terraform' | 'deployed';
+
+function runKey(base: DriftLayer, target: DriftLayer): string {
+  return `${base}__${target}`;
+}
+
+function comparisonFromType(driftType: string): { base: DriftLayer; target: DriftLayer } {
+  switch (driftType) {
+    case 'missing':
+      return { base: 'planned', target: 'deployed' };
+    case 'unexpected':
+    case 'unmanaged':
+      return { base: 'deployed', target: 'planned' };
+    case 'version_mismatch':
+      return { base: 'planned', target: 'terraform' };
+    default:
+      return { base: 'terraform', target: 'deployed' };
+  }
+}
+
+function categoryFromType(driftType: string): DriftCategory {
+  switch (driftType) {
+    case 'missing':
+      return 'missing';
+    case 'unexpected':
+    case 'unmanaged':
+      return 'unexpected';
+    case 'relationship_broken':
+    case 'edge':
+      return 'edge';
+    default:
+      return 'attribute';
+  }
+}
+
+function layerLabel(layer: DriftLayer): string {
+  if (layer === 'planned') return 'Planned Architecture';
+  if (layer === 'terraform') return 'Terraform State';
+  return 'Deployed Infrastructure';
+}
+
 export function DriftPage() {
   const [searchParams] = useSearchParams();
 
@@ -40,27 +83,53 @@ export function DriftPage() {
     queryKey: ['projects'],
     queryFn: async () => (await apiClient.getProjects()).data as ProjectRow[],
   });
-  const { data: scansData } = useQuery({
-    queryKey: ['scans'],
-    queryFn: async () => (await apiClient.getScans()).data as ScanRow[],
+  const [projectId, setProjectId] = useState<string>();
+  const [scanId, setScanId] = useState<string>();
+  const [runId, setRunId] = useState<string>();
+
+  const { data: scansData = [] } = useQuery({
+    queryKey: ['settings-scans', projectId],
+    queryFn: async () =>
+      (await apiClient.getSettingsScans({ projectId: projectId as string })).data as ScanRow[],
+    enabled: Boolean(projectId),
   });
   const { data: runsData } = useQuery({
-    queryKey: ['drift-runs'],
-    queryFn: async () => (await apiClient.getDriftRuns()).data as { runs: DriftRun[] },
+    queryKey: ['drift-runs', scanId],
+    queryFn: async () => (await apiClient.getDriftRuns({ scanId })).data as { runs: DriftRun[] },
+    enabled: Boolean(scanId),
   });
   const { data: findingsData, isLoading, error } = useQuery({
-    queryKey: ['findings'],
-    queryFn: async () => (await apiClient.getFindings()).data as { scanId: string; findings: DriftFinding[] },
+    queryKey: ['findings', scanId],
+    queryFn: async () =>
+      (await apiClient.getFindings({ scanId })).data as { scanId: string; findings: DriftFinding[] },
+    enabled: Boolean(scanId),
   });
 
   const projects = projectsData ?? [];
   const scans = scansData ?? [];
   const runs = runsData?.runs ?? [];
-  const findings = useMemo(() => findingsData?.findings ?? [], [findingsData]);
+  const findings = useMemo(() => {
+    const raw = findingsData?.findings ?? [];
+    const fallbackScanId = findingsData?.scanId ?? scansData?.[0]?.scanId ?? '';
+    return raw.map((finding) => {
+      const comparison = comparisonFromType(String(finding.driftType ?? ''));
+      return {
+        ...finding,
+        scanId: finding.scanId ?? fallbackScanId,
+        category: finding.category ?? categoryFromType(String(finding.driftType ?? '')),
+        runId: finding.runId ?? runKey(comparison.base, comparison.target),
+        comparison:
+          finding.comparison ??
+          {
+            baseLayer: comparison.base,
+            targetLayer: comparison.target,
+            baseLabel: layerLabel(comparison.base),
+            targetLabel: layerLabel(comparison.target),
+          },
+      } as DriftFinding;
+    });
+  }, [findingsData, scansData]);
 
-  const [projectId, setProjectId] = useState<string>();
-  const [scanId, setScanId] = useState<string>();
-  const [runId, setRunId] = useState<string>();
   const [filters, setFilters] = useState<DriftFilterState>(EMPTY_FILTERS);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [statusOverrides, setStatusOverrides] = useState<Record<string, DriftStatus>>({});
@@ -70,9 +139,29 @@ export function DriftPage() {
   useEffect(() => {
     if (!projectId && projects.length) setProjectId(projects[0].projectId);
   }, [projectId, projects]);
+
   useEffect(() => {
-    if (!scanId && scans.length) setScanId(scans[0].scanId);
-  }, [scanId, scans]);
+    if (!projectId) {
+      setScanId(undefined);
+      setRunId(undefined);
+      return;
+    }
+    if (scans.length === 0) {
+      setScanId(undefined);
+      setRunId(undefined);
+      return;
+    }
+    if (!scanId || !scans.some((s) => s.scanId === scanId)) {
+      setScanId(scans[0].scanId);
+      setRunId(undefined);
+    }
+  }, [projectId, scans, scanId]);
+
+  useEffect(() => {
+    if (runId && !runs.some((r) => r.id === runId)) {
+      setRunId(undefined);
+    }
+  }, [runId, runs]);
   // Seed severity/category filters from ?severity= / ?category= deep links
   // (dashboard stat cards and the drift-by-type chart).
   useEffect(() => {
@@ -104,6 +193,15 @@ export function DriftPage() {
   const visible = useMemo(() => {
     const q = filters.search.trim().toLowerCase();
     return decorated.filter((f) => {
+      if (projectId && runs.length > 0) {
+        const run = runs.find((r) => r.id === f.runId);
+        if (run && run.projectId !== projectId) {
+          return false;
+        }
+      }
+      if (scanId && f.scanId && f.scanId !== scanId) {
+        return false;
+      }
       if (runId && f.runId !== runId) return false;
       if (filters.severity.length && !filters.severity.includes(f.severity)) return false;
       if (filters.category.length && !filters.category.includes(f.category)) return false;
@@ -116,7 +214,7 @@ export function DriftPage() {
       }
       return true;
     });
-  }, [decorated, runId, filters]);
+  }, [decorated, runId, filters, projectId, scanId, runs]);
 
   const selected = selectedId ? decorated.find((f) => f.driftId === selectedId) ?? null : null;
 
@@ -124,7 +222,7 @@ export function DriftPage() {
     setStatusOverrides((prev) => ({ ...prev, [id]: status }));
   }
 
-  if (isLoading) {
+  if (isLoading && scanId) {
     return <LoadingState message="Loading drifts..." />;
   }
   if (error) {
@@ -157,20 +255,41 @@ export function DriftPage() {
         <DriftFilters
           projects={projects}
           projectId={projectId}
-          onProjectChange={setProjectId}
+          onProjectChange={(id) => {
+            setProjectId(id || undefined);
+            setScanId(undefined);
+            setRunId(undefined);
+            setSelectedId(null);
+          }}
           scans={scans}
           scanId={scanId}
-          onScanChange={setScanId}
+          onScanChange={(id) => {
+            setScanId(id || undefined);
+            setRunId(undefined);
+            setSelectedId(null);
+          }}
           runs={runs}
           runId={runId}
           onRunChange={(id) => {
-            setRunId(id);
+            setRunId(id || undefined);
             setSelectedId(null);
           }}
           filters={filters}
           onChange={setFilters}
         />
       </div>
+
+      {projectId && scans.length === 0 && (
+        <div className="mt-4 rounded-lg border border-dashed border-slate-700 p-4 text-sm text-slate-400">
+          No workspaces found for this project.
+        </div>
+      )}
+
+      {scanId && runs.length === 0 && (
+        <div className="mt-4 rounded-lg border border-dashed border-slate-700 p-4 text-sm text-slate-400">
+          No scan runs found for this workspace.
+        </div>
+      )}
 
       <div className="mt-5 text-xs text-slate-500">
         Showing {visible.length} of {decorated.filter((f) => !runId || f.runId === runId).length} drift

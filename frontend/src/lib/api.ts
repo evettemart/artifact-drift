@@ -1,22 +1,22 @@
 import axios from 'axios';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
-
 export const api = axios.create({
-  baseURL: API_BASE_URL,
+  baseURL: 'http://localhost:3001/api',
+  timeout: 30000,
   headers: {
     'Content-Type': 'application/json',
   },
 });
 
-// API response types
-export interface ApiResponse<T> {
-  data?: T;
-  error?: string;
-  message?: string;
-}
+// Response interceptor for error handling
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    console.error('API Error:', error.response?.data || error.message);
+    return Promise.reject(error);
+  }
+);
 
-// API endpoints
 export const apiClient = {
   // Health check
   health: () => api.get('/health'),
@@ -28,16 +28,30 @@ export const apiClient = {
   // Integrations
   getIntegrations: (params?: { projectId?: string }) =>
     api.get('/integrations', { params }),
+  createIntegration: (data: {
+    projectId: string;
+    kind: string;
+    name: string;
+    configJson?: string;
+  }) => api.post('/integrations', data),
+  deleteIntegration: (integrationId: string) =>
+    api.delete(`/integrations/${integrationId}`),
 
   // Analysis
   runAnalysis: () => api.post('/analyze'),
 
   // Findings
-  getFindings: (params?: { scanId?: string; severity?: string; type?: string; status?: string; runId?: string }) =>
-    api.get('/findings', { params }),
+  getFindings: (params?: {
+    scanId?: string;
+    severity?: string;
+    type?: string;
+    status?: string;
+    runId?: string;
+  }) => api.get('/findings', { params }),
 
-  // Drift runs (base -> target comparisons for a scan)
-  getDriftRuns: () => api.get('/drift-runs'),
+  // Drift runs
+  getDriftRuns: (params?: { scanId?: string }) =>
+    api.get('/drift-runs', { params }),
 
   // Resources
   getResources: (params?: { scanId?: string; source?: string }) =>
@@ -47,12 +61,25 @@ export const apiClient = {
   getScans: (params?: { limit?: number }) =>
     api.get('/scans', { params }),
 
+  // Settings
+  getSettingsScans: (projectIdOrParams?: string | { projectId?: string }) => {
+    const params =
+      typeof projectIdOrParams === 'string'
+        ? { projectId: projectIdOrParams }
+        : projectIdOrParams;
+
+    return api.get('/settings/scans', {
+      params,
+    });
+  },
+
   // Report
   getReport: (params?: { scanId?: string; format?: 'json' | 'html' }) =>
     api.get('/report', { params }),
 
   // Graph
-  getGraph: () => api.get('/graph'),
+  getGraph: (params?: { scanId?: string }) =>
+    api.get('/graph', { params }),
 };
 
 export default apiClient;
