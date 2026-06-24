@@ -1,0 +1,121 @@
+<mxfile host="app.diagrams.net" modified="2026-06-24T00:00:00.000Z" agent="GitHub Copilot" version="24.0.0" type="device">
+  <diagram id="hcp-vault-demo-topology" name="HCP Vault Demo Topology">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1100" pageHeight="850" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- Account boundary -->
+        <mxCell id="account" value="AWS Account 866018955975 — Project: hcp-vault-demo (prod)" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;fontStyle=1;fontSize=14;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="20" y="100" width="1060" height="600" as="geometry" />
+        </mxCell>
+
+        <!-- HCP principal -->
+        <mxCell id="hcp" value="HCP Principal&#10;979437352305&#10;(RAM external principal)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="400" y="20" width="300" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- Internet -->
+        <mxCell id="internet" value="Internet" style="ellipse;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="470" y="730" width="160" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- ===== Region 1 - eu-west-1 ===== -->
+        <mxCell id="r1" value="Region 1 — eu-west-1" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;fontStyle=1;fillColor=#e6f2ff;strokeColor=#3366cc;" vertex="1" parent="1">
+          <mxGeometry x="40" y="140" width="320" height="540" as="geometry" />
+        </mxCell>
+        <mxCell id="vpc1" value="VPC vpc-09ecaf688faa4422a&#10;10.20.0.0/16" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="60" y="180" width="280" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="igw1" value="IGW&#10;igw-041b524c6723221ee" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="60" y="240" width="130" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="pub1" value="Public Subnet&#10;10.20.1.0/24&#10;eu-west-1b" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d4e1f5;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="210" y="240" width="130" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="priv1" value="Private Subnet&#10;10.20.2.0/24&#10;eu-west-1b" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">
+          <mxGeometry x="210" y="320" width="130" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="tgw1" value="Transit Gateway&#10;tgw-0888cb1c72a1e5fd7&#10;ASN 64512" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="60" y="430" width="280" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="ram1" value="RAM Share&#10;r1-tgw-share" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
+          <mxGeometry x="60" y="510" width="280" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- ===== Region 2 - us-east-1 ===== -->
+        <mxCell id="r2" value="Region 2 — us-east-1" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;fontStyle=1;fillColor=#e6f2ff;strokeColor=#3366cc;" vertex="1" parent="1">
+          <mxGeometry x="390" y="140" width="320" height="540" as="geometry" />
+        </mxCell>
+        <mxCell id="vpc2" value="VPC vpc-0ec009fcede45e5ea&#10;10.21.0.0/16" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="410" y="180" width="280" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="igw2" value="IGW&#10;igw-0da2b6a46c9cffd46" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="410" y="240" width="130" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="pub2" value="Public Subnet&#10;10.21.1.0/24&#10;us-east-1b" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d4e1f5;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="560" y="240" width="130" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="priv2" value="Private Subnet&#10;10.21.2.0/24&#10;us-east-1b" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">
+          <mxGeometry x="560" y="320" width="130" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="tgw2" value="Transit Gateway&#10;tgw-0d6297a9428548374&#10;ASN 64512" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="410" y="430" width="280" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="ram2" value="RAM Share&#10;r2-tgw-share" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
+          <mxGeometry x="410" y="510" width="280" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- ===== Region 3 - ap-southeast-1 (optional) ===== -->
+        <mxCell id="r3" value="Region 3 — ap-southeast-1 (optional, count=1)" style="rounded=0;whiteSpace=wrap;html=1;verticalAlign=top;fontStyle=1;dashed=1;fillColor=#e6f2ff;strokeColor=#3366cc;" vertex="1" parent="1">
+          <mxGeometry x="740" y="140" width="320" height="540" as="geometry" />
+        </mxCell>
+        <mxCell id="vpc3" value="VPC vpc-09549df1247ae1f3a&#10;10.22.0.0/16" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="760" y="180" width="280" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="igw3" value="IGW&#10;igw-0c17b940641d2335c" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="760" y="240" width="130" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="pub3" value="Public Subnet&#10;10.22.1.0/24&#10;ap-southeast-1c" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d4e1f5;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="910" y="240" width="130" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="priv3" value="Private Subnet&#10;10.22.2.0/24&#10;ap-southeast-1c" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">
+          <mxGeometry x="910" y="320" width="130" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="tgw3" value="Transit Gateway&#10;tgw-060aa62f2a21d442a&#10;ASN 64512" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="760" y="430" width="280" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="ram3" value="RAM Share&#10;r3-tgw-share" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
+          <mxGeometry x="760" y="510" width="280" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- ===== Edges ===== -->
+        <!-- Public route 0.0.0.0/0 -> IGW -->
+        <mxCell id="e_pub1_igw1" value="0.0.0.0/0" style="endArrow=classic;html=1;fontSize=10;" edge="1" parent="1" source="pub1" target="igw1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e_pub2_igw2" value="0.0.0.0/0" style="endArrow=classic;html=1;fontSize=10;" edge="1" parent="1" source="pub2" target="igw2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e_pub3_igw3" value="0.0.0.0/0" style="endArrow=classic;html=1;fontSize=10;" edge="1" parent="1" source="pub3" target="igw3"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <!-- Private subnet -> TGW attachment -->
+        <mxCell id="e_priv1_tgw1" value="TGW attach" style="endArrow=classic;html=1;fontSize=10;" edge="1" parent="1" source="priv1" target="tgw1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e_priv2_tgw2" value="TGW attach" style="endArrow=classic;html=1;fontSize=10;" edge="1" parent="1" source="priv2" target="tgw2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e_priv3_tgw3" value="TGW attach" style="endArrow=classic;html=1;fontSize=10;" edge="1" parent="1" source="priv3" target="tgw3"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <!-- TGW -> RAM share -->
+        <mxCell id="e_tgw1_ram1" style="endArrow=none;html=1;" edge="1" parent="1" source="tgw1" target="ram1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e_tgw2_ram2" style="endArrow=none;html=1;" edge="1" parent="1" source="tgw2" target="ram2"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e_tgw3_ram3" style="endArrow=none;html=1;" edge="1" parent="1" source="tgw3" target="ram3"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <!-- RAM share -> HCP (shared) -->
+        <mxCell id="e_ram1_hcp" value="shared with" style="endArrow=classic;dashed=1;html=1;fontSize=10;" edge="1" parent="1" source="ram1" target="hcp"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e_ram2_hcp" value="shared with" style="endArrow=classic;dashed=1;html=1;fontSize=10;" edge="1" parent="1" source="ram2" target="hcp"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e_ram3_hcp" value="shared with" style="endArrow=classic;dashed=1;html=1;fontSize=10;" edge="1" parent="1" source="ram3" target="hcp"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <!-- IGW -> Internet -->
+        <mxCell id="e_igw1_inet" style="endArrow=classic;html=1;" edge="1" parent="1" source="igw1" target="internet"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e_igw2_inet" style="endArrow=classic;html=1;" edge="1" parent="1" source="igw2" target="internet"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e_igw3_inet" style="endArrow=classic;html=1;" edge="1" parent="1" source="igw3" target="internet"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

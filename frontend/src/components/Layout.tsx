@@ -1,7 +1,7 @@
 import { ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Activity, BarChart3, FileText, Network, Plug, Settings2 } from 'lucide-react';
+import { Activity, BarChart3, FileText, Network, PlayCircle, Plug, Settings2 } from 'lucide-react';
 import { Logo } from './Logo';
 import apiClient from '../lib/api';
 
@@ -11,7 +11,8 @@ interface LayoutProps {
 
 const NAV_ITEMS = [
   { path: '/', label: 'Dashboard', icon: BarChart3 },
-  { path: '/settings', label: 'Project Scans', icon: Settings2 },
+  { path: '/scans', label: 'Scans', icon: PlayCircle },
+  { path: '/settings', label: 'Projects', icon: Settings2 },
   { path: '/drift', label: 'Drift', icon: Activity },
   { path: '/graph', label: 'Graph', icon: Network },
   { path: '/integrations', label: 'Integrations', icon: Plug },
@@ -36,6 +37,16 @@ export function Layout({ children }: LayoutProps) {
       return response.data;
     },
   });
+
+  const { data: healthData } = useQuery({
+    queryKey: ['health'],
+    queryFn: async () => {
+      const response = await apiClient.health();
+      return response.data as { status: string; demoMode?: boolean };
+    },
+  });
+
+  const demoMode = healthData?.demoMode ?? false;
 
   const currentProject =
     Array.isArray(projectsData) && projectsData.length > 0 ? projectsData[0] : null;
@@ -85,8 +96,12 @@ export function Layout({ children }: LayoutProps) {
 
         <div className="border-t border-slate-800 px-5 py-3">
           <span className="inline-flex items-center gap-2 text-xs text-slate-400">
-            <span className="h-2 w-2 rounded-full bg-emerald-400" />
-            Mock data mode
+            <span
+              className={`h-2 w-2 rounded-full ${
+                demoMode ? 'bg-amber-400' : 'bg-emerald-400'
+              }`}
+            />
+            {demoMode ? 'Mock data mode' : 'Live mode · reading from database'}
           </span>
         </div>
       </aside>

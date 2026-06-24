@@ -27,6 +27,8 @@ import {
   findings as findingsTable,
   resources as resourcesTable,
 } from '../db/schema';
+import { fetchAwsInventory } from './agents/awsInventory';
+import type { InventorySource } from './agents/awsInventory';
 
 interface ArchitectureResourceInput {
   type: string;
@@ -833,13 +835,23 @@ export function detectDrift(
 
 let cachedArtifacts: AnalysisArtifacts | null = null;
 
-export function runFullAnalysis(): AnalysisArtifacts {
+interface RunAnalysisOptions {
+  /** Pre-fetched AWS inventory (e.g. from the live AWS agent). */
+  awsResources?: NormalizedResource[];
+  /** Where the AWS inventory came from. Defaults to the static mock file. */
+  awsSource?: InventorySource;
+  /** Region the AWS inventory was scanned in. */
+  awsRegion?: string;
+}
+
+export function runFullAnalysis(options: RunAnalysisOptions = {}): AnalysisArtifacts {
   const startedAt = nowIso();
   const intentResources = parseArchitectureIntent();
   const terraformResources = parseTerraformState();
-  const awsResources = parseAwsInventory();
+  const awsResources = options.awsResources ?? parseAwsInventory();
+  const awsSource = options.awsSource ?? 'mock';
   const terraformVersionValue = readTerraformVersion();
-  const region = intentResources[0]?.region ?? 'us-east-1';
+  const region = options.awsRegion ?? intentResources[0]?.region ?? 'us-east-1';
 
   const findingsList = detectDrift(
     intentResources,
@@ -887,8 +899,11 @@ export function runFullAnalysis(): AnalysisArtifacts {
         version: terraformVersionValue,
       },
       aws: {
-        type: 'mock',
-        path: 'examples/aws-mock-inventory.json',
+        type: awsSource,
+        path:
+          awsSource === 'aws'
+            ? `aws://${region}`
+            : 'examples/aws-mock-inventory.json',
         resourceCount: awsResources.length,
         region,
       },
@@ -909,6 +924,20 @@ export function runFullAnalysis(): AnalysisArtifacts {
   };
 
   return cachedArtifacts;
+}
+
+/**
+ * Live analysis orchestration: pulls real AWS inventory via the AWS agent
+ * (single region, with automatic mock fallback), runs drift detection, and
+ * caches the resulting artifacts.
+ */
+export async function runLiveAnalysis(): Promise<AnalysisArtifacts> {
+  const inventory = await fetchAwsInventory();
+  return runFullAnalysis({
+    awsResources: inventory.resources,
+    awsSource: inventory.source,
+    awsRegion: inventory.region,
+  });
 }
 
 export function getLatestArtifacts(): AnalysisArtifacts {
