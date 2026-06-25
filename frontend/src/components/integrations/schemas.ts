@@ -192,6 +192,13 @@ export const INTEGRATION_SCHEMAS: IntegrationKindSchema[] = [
         help: 'Upload a Draw.io XML (.drawio/.xml) or an exported image (.png/.jpg/.svg).',
       },
       { key: 'diagram_name', label: 'Diagram name', type: 'text', placeholder: 'Production network' },
+      {
+        key: 'resource_types',
+        label: 'Resource types (comma-separated)',
+        type: 'text',
+        placeholder: 'vpc,subnet,security_group',
+        help: 'Required in strict mode. Use exact type keys, e.g. vpc, subnet, security_group, alb.',
+      },
     ],
   },
   {
@@ -210,6 +217,13 @@ export const INTEGRATION_SCHEMAS: IntegrationKindSchema[] = [
         help: 'Upload a static image (.png/.jpg/.jpeg/.gif/.webp/.svg) or PDF export.',
       },
       { key: 'diagram_name', label: 'Diagram name', type: 'text', placeholder: 'Network topology' },
+      {
+        key: 'resource_types',
+        label: 'Resource types (comma-separated)',
+        type: 'text',
+        placeholder: 'vpc,subnet,security_group',
+        help: 'Required in strict mode. Use exact type keys, e.g. vpc, subnet, security_group, alb.',
+      },
     ],
   },
   {

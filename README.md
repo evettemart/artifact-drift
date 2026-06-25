@@ -68,12 +68,24 @@ To analyze real infrastructure:
    echo "DEMO_MODE=false" > .env
    echo "ANTHROPIC_API_KEY=your-key-here" >> .env
    ```
-3. **Prepare your architecture files**:
+3. **Test LLM connectivity** (recommended before running scans):
+  ```bash
+  cd backend
+  set -a && source .env && set +a
+  BASE_URL="${ANTHROPIC_BASE_URL:-https://api.anthropic.com}"
+  curl -sS "$BASE_URL/v1/messages" \
+    -H "x-api-key: $ANTHROPIC_API_KEY" \
+    -H "anthropic-version: 2023-06-01" \
+    -H "content-type: application/json" \
+    -d '{"model":"claude-sonnet-4-6","max_tokens":16,"messages":[{"role":"user","content":"reply with ok"}]}'
+  ```
+  A successful response includes a JSON message payload from the model.
+4. **Prepare your architecture files**:
    - `examples/architecture.yaml` - Your intended architecture
    - `examples/terraform-state.json` - Export from `terraform show -json`
    - Or let the tool fetch AWS inventory automatically
 
-4. **Start the servers** (same as demo mode, but with `DEMO_MODE=false`)
+5. **Start the servers** (same as demo mode, but with `DEMO_MODE=false`)
 
 ## 🎬 Demo Script
 

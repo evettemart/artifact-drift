@@ -226,6 +226,12 @@ export function SettingsPage() {
     onSuccess: (projectId) => {
       queryClient.invalidateQueries({ queryKey: ['settings-projects'] });
       queryClient.invalidateQueries({ queryKey: ['projects'] });
+      queryClient.invalidateQueries({ queryKey: ['integrations'] });
+      queryClient.invalidateQueries({ queryKey: ['settings-scans'] });
+      queryClient.invalidateQueries({ queryKey: ['settings-scans-all'] });
+      queryClient.invalidateQueries({ queryKey: ['scans'] });
+      queryClient.invalidateQueries({ queryKey: ['drift-runs'] });
+      queryClient.invalidateQueries({ queryKey: ['graph'] });
       if (selectedProjectId === projectId) {
         setSelectedProjectId('');
       }

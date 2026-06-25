@@ -10,6 +10,16 @@ import ReactFlow, {
   useEdgesState,
   useNodesState,
 } from 'reactflow';
+import {
+  Box,
+  Database,
+  Globe,
+  Network,
+  Route,
+  Server,
+  Shield,
+  type LucideIcon,
+} from 'lucide-react';
 import 'reactflow/dist/style.css';
 import { LoadingState } from '../components/LoadingSpinner';
 import { ErrorAlert } from '../components/ErrorAlert';
@@ -25,11 +35,46 @@ interface WorkspaceRow {
   projectId: string;
   name?: string;
   createdAt?: string;
+  selectedIntegrations?: string[];
 }
 
 interface DriftRunRow {
   id: string;
   label: string;
+  scanId?: string;
+  createdAt?: string | null;
+}
+
+interface IntegrationTab {
+  id: string;
+  label: string;
+  layer: 'planned' | 'terraform' | 'deployed';
+}
+
+const INTEGRATION_LABEL: Record<string, string> = {
+  image: 'Static Diagram',
+  drawio: 'Draw.io Diagram',
+  confluence: 'Confluence Intent',
+  terraform: 'Terraform State',
+  aws: 'AWS Runtime',
+  vault: 'Vault Runtime',
+};
+
+const INTEGRATION_LAYER: Record<string, 'planned' | 'terraform' | 'deployed'> = {
+  image: 'planned',
+  drawio: 'planned',
+  confluence: 'planned',
+  terraform: 'terraform',
+  aws: 'deployed',
+  vault: 'deployed',
+};
+
+function integrationTab(kind: string): IntegrationTab {
+  return {
+    id: kind,
+    label: INTEGRATION_LABEL[kind] ?? kind,
+    layer: INTEGRATION_LAYER[kind] ?? 'planned',
+  };
 }
 
 const nodeTypes = {};
@@ -37,8 +82,75 @@ const nodeTypes = {};
 const SELECT_CLS =
   'rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/30';
 
+function formatRunTimestamp(value?: string | null): string {
+  if (!value) {
+    return 'No date';
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return 'No date';
+  }
+  return new Intl.DateTimeFormat(undefined, {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date);
+}
+
+function normalizeType(typeValue: string): string {
+  const raw = String(typeValue || '').trim();
+  if (!raw) return 'unknown';
+  if (raw.includes('::')) {
+    return raw.split('::').pop()?.toLowerCase() ?? raw.toLowerCase();
+  }
+  if (raw.startsWith('aws_')) {
+    return raw.slice(4).toLowerCase();
+  }
+  return raw.toLowerCase();
+}
+
+function titleForType(typeValue: string): string {
+  const normalized = normalizeType(typeValue);
+  const titles: Record<string, string> = {
+    vpc: 'VPC',
+    subnet: 'Subnet',
+    ec2_instance: 'EC2 Instance',
+    instance: 'EC2 Instance',
+    security_group: 'Security Group',
+    load_balancer: 'Load Balancer',
+    alb: 'Load Balancer',
+    route_table: 'Route Table',
+    internet_gateway: 'Internet Gateway',
+    nat_gateway: 'NAT Gateway',
+    s3_bucket: 'S3 Bucket',
+    rds_instance: 'RDS Instance',
+  };
+  return titles[normalized] ?? typeValue;
+}
+
+function iconForType(typeValue: string): LucideIcon {
+  const normalized = normalizeType(typeValue);
+  const icons: Record<string, LucideIcon> = {
+    vpc: Network,
+    subnet: Route,
+    ec2_instance: Server,
+    instance: Server,
+    security_group: Shield,
+    load_balancer: Globe,
+    alb: Globe,
+    route_table: Route,
+    internet_gateway: Globe,
+    nat_gateway: Globe,
+    s3_bucket: Box,
+    rds_instance: Database,
+  };
+  return icons[normalized] ?? Box;
+}
+
 export function GraphPage() {
-  const [activeTab, setActiveTab] = useState<'planned' | 'terraform' | 'deployed'>('planned');
+  const [activeTab, setActiveTab] = useState<string>('planned');
   const [projectId, setProjectId] = useState<string>('');
   const [workspaceId, setWorkspaceId] = useState<string>('');
   const [runId, setRunId] = useState<string>('');
@@ -64,11 +176,36 @@ export function GraphPage() {
 
   const runs = runsData?.runs ?? [];
 
+  const selectedWorkspace = useMemo(
+    () => workspaces.find((workspace) => workspace.scanId === workspaceId) ?? null,
+    [workspaces, workspaceId]
+  );
+
+  const integrationTabs = useMemo<IntegrationTab[]>(() => {
+    const kinds = selectedWorkspace?.selectedIntegrations ?? [];
+    if (!Array.isArray(kinds) || kinds.length === 0) {
+      return [
+        { id: 'planned', label: 'Planned (Intent)', layer: 'planned' },
+        { id: 'terraform', label: 'Terraform State', layer: 'terraform' },
+        { id: 'deployed', label: 'Deployed (AWS)', layer: 'deployed' },
+      ];
+    }
+
+    const dedupedKinds = Array.from(new Set(kinds));
+    return dedupedKinds.map(integrationTab);
+  }, [selectedWorkspace]);
+
+  useEffect(() => {
+    if (!integrationTabs.some((tab) => tab.id === activeTab)) {
+      setActiveTab(integrationTabs[0]?.id ?? 'planned');
+    }
+  }, [integrationTabs, activeTab]);
+
   const shouldLoadGraph = Boolean(projectId && workspaceId && runId);
   const { data: graphData, isLoading, error } = useQuery({
     queryKey: ['graph', workspaceId, runId],
     queryFn: async () => {
-      const response = await apiClient.getGraph({ scanId: workspaceId });
+      const response = await apiClient.getGraph({ scanId: workspaceId, runId });
       return response.data;
     },
     enabled: shouldLoadGraph,
@@ -93,15 +230,22 @@ export function GraphPage() {
   }, [runId, runs]);
 
   const getNodeColor = (type: string) => {
+    const normalized = normalizeType(type);
     const colors: Record<string, string> = {
       vpc: '#dbeafe',
       subnet: '#bfdbfe',
       ec2_instance: '#fef3c7',
       security_group: '#fecaca',
       load_balancer: '#d1fae5',
+      instance: '#fef3c7',
+      route_table: '#e2e8f0',
+      internet_gateway: '#e0f2fe',
+      nat_gateway: '#cffafe',
+      s3_bucket: '#fde68a',
+      rds_instance: '#ddd6fe',
       default: '#f3f4f6',
     };
-    return colors[type] || colors.default;
+    return colors[normalized] || colors.default;
   };
 
   const transformToFlowData = (nodes: any[], edges: any[]) => {
@@ -110,9 +254,13 @@ export function GraphPage() {
       type: 'default',
       data: {
         label: (
-          <div className="text-center">
+          <div className="flex flex-col items-center text-center">
+            {(() => {
+              const Icon = iconForType(node.type);
+              return <Icon className="mb-1 h-4 w-4 text-sky-700" />;
+            })()}
             <div className="text-sm font-semibold">{node.label}</div>
-            <div className="text-[10px] text-gray-500">{node.type}</div>
+            <div className="text-[10px] text-gray-600">{titleForType(node.type)}</div>
           </div>
         ),
         ...node,
@@ -147,12 +295,13 @@ export function GraphPage() {
     if (!graphData) {
       return { nodes: [], edges: [] };
     }
-    const viewData = graphData[activeTab];
+    const activeLayer = integrationTabs.find((tab) => tab.id === activeTab)?.layer ?? 'planned';
+    const viewData = graphData[activeLayer];
     if (!viewData) {
       return { nodes: [], edges: [] };
     }
     return transformToFlowData(viewData.nodes || [], viewData.edges || []);
-  }, [graphData, activeTab]);
+  }, [graphData, activeTab, integrationTabs]);
 
   const [nodes, setNodes, onNodesChange] = useNodesState(flowNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(flowEdges);
@@ -224,7 +373,7 @@ export function GraphPage() {
               ) : (
                 runs.map((run) => (
                   <option key={run.id} value={run.id}>
-                    {run.label}
+                    {formatRunTimestamp(run.createdAt)} | {run.label} ({run.scanId ?? 'no-scan-id'})
                   </option>
                 ))
               )}
@@ -253,43 +402,26 @@ export function GraphPage() {
           <div className="rounded-xl border border-slate-800 bg-slate-950 text-slate-100">
             <div className="border-b border-slate-800">
               <nav className="flex -mb-px">
-                <button
-                  onClick={() => setActiveTab('planned')}
-                  className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
-                    activeTab === 'planned'
-                      ? 'border-sky-500 text-sky-400'
-                      : 'border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-700'
-                  }`}
-                >
-                  Planned (Intent)
-                </button>
-                <button
-                  onClick={() => setActiveTab('terraform')}
-                  className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
-                    activeTab === 'terraform'
-                      ? 'border-sky-500 text-sky-400'
-                      : 'border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-700'
-                  }`}
-                >
-                  Terraform State
-                </button>
-                <button
-                  onClick={() => setActiveTab('deployed')}
-                  className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
-                    activeTab === 'deployed'
-                      ? 'border-sky-500 text-sky-400'
-                      : 'border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-700'
-                  }`}
-                >
-                  Deployed (AWS)
-                </button>
+                {integrationTabs.map((tab) => (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
+                      activeTab === tab.id
+                        ? 'border-sky-500 text-sky-400'
+                        : 'border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-700'
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
               </nav>
             </div>
 
             <div className="h-[600px] bg-slate-900/40">
               {nodes.length === 0 ? (
                 <div className="flex h-full items-center justify-center text-slate-500">
-                  No resources found for {activeTab} view
+                  No resources found for {integrationTabs.find((tab) => tab.id === activeTab)?.label ?? activeTab} view
                 </div>
               ) : (
                 <ReactFlow

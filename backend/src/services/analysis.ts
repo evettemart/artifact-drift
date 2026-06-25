@@ -836,18 +836,30 @@ export function detectDrift(
 let cachedArtifacts: AnalysisArtifacts | null = null;
 
 interface RunAnalysisOptions {
+  /** Override generated scan id (e.g. run against a workspace scan id). */
+  scanId?: string;
+  /** Override project id for persisted scan rows. */
+  projectId?: string;
+  /** Override intent resources (e.g. interpreted static image). */
+  intentResources?: NormalizedResource[];
+  /** Override Terraform resources. */
+  terraformResources?: NormalizedResource[];
   /** Pre-fetched AWS inventory (e.g. from the live AWS agent). */
   awsResources?: NormalizedResource[];
   /** Where the AWS inventory came from. Defaults to the static mock file. */
   awsSource?: InventorySource;
   /** Region the AWS inventory was scanned in. */
   awsRegion?: string;
+  /** Extra scan config values to persist alongside analysis defaults. */
+  scanConfig?: Record<string, unknown>;
+  /** Extra source metadata to persist (e.g. interpreted graph model JSON). */
+  sourceMetadata?: Record<string, unknown>;
 }
 
 export function runFullAnalysis(options: RunAnalysisOptions = {}): AnalysisArtifacts {
   const startedAt = nowIso();
-  const intentResources = parseArchitectureIntent();
-  const terraformResources = parseTerraformState();
+  const intentResources = options.intentResources ?? parseArchitectureIntent();
+  const terraformResources = options.terraformResources ?? parseTerraformState();
   const awsResources = options.awsResources ?? parseAwsInventory();
   const awsSource = options.awsSource ?? 'mock';
   const terraformVersionValue = readTerraformVersion();
@@ -874,8 +886,8 @@ export function runFullAnalysis(options: RunAnalysisOptions = {}): AnalysisArtif
   };
 
   const scan: ScanResult = {
-    scanId: 'scan-generated-latest',
-    projectId: 'demo-project',
+    scanId: options.scanId ?? 'scan-generated-latest',
+    projectId: options.projectId ?? 'demo-project',
     startedAt,
     completedAt,
     durationMs: Math.max(
@@ -907,11 +919,13 @@ export function runFullAnalysis(options: RunAnalysisOptions = {}): AnalysisArtif
         resourceCount: awsResources.length,
         region,
       },
+      ...(options.sourceMetadata ?? {}),
     },
     config: {
       enableLLMReasoning: false,
       regions: [region],
       detectUnmanaged: true,
+      ...(options.scanConfig ?? {}),
     },
   };
 
