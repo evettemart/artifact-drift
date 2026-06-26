@@ -856,14 +856,17 @@ export function runFullAnalysis(options: RunAnalysisOptions = {}): AnalysisArtif
   const awsSource = options.awsSource ?? 'mock';
   const terraformVersionValue = readTerraformVersion();
   const region = options.awsRegion ?? intentResources[0]?.region ?? 'us-east-1';
-  const driftAgent = new DriftAnalysisAgent(detectDrift);
+  const driftAgent = new DriftAnalysisAgent({
+    deepCompare: true,
+    detectUnmanaged: options.scanConfig?.detectUnmanaged !== false,
+  });
 
   const drift = driftAgent.analyze({
     intentResources,
     terraformResources,
     awsResources,
     terraformVersion: terraformVersionValue,
-    region
+    region,
   });
 
   const findingsList = drift.findings;
