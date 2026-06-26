@@ -15,6 +15,7 @@ import path from 'path';
 import { getLatestArtifacts, runFullAnalysis, persistAnalysis } from '../services/analysis';
 import { interpretStaticDiagram } from '../services/agents/designIntentStatic';
 import { fetchTerraformStateResources } from '../services/agents/terraformState';
+import { fetchAwsInventory } from '../services/agents/awsInventory';
 import {
   normalizeAndValidateGraphModel,
   renderMermaidFromGraphModel,
@@ -933,6 +934,37 @@ router.post('/analyze', async (req: Request, res: Response) => {
         console.warn('[terraform-state-agent]', warning);
       }
 
+      // Sub-Task 1: filter AWS integrations from the workspace selection
+      // Mirrors the 3-level fallback used by terraform integrations above:
+      //   1. selected integrations for this project
+      //   2. all integrations for this project
+      //   3. all integrations globally (integrations may live under 'demo-project')
+      let awsIntegrations = selectedIntegrations.filter(
+        (integration) => integration.type === 'aws'
+      );
+      if (awsIntegrations.length === 0) {
+        awsIntegrations = allProjectIntegrations.filter(
+          (integration) => integration.type === 'aws'
+        );
+      }
+      if (awsIntegrations.length === 0 && selectedTokens.has('aws')) {
+        const allGlobalIntegrations = await db.select().from(integrations);
+        awsIntegrations = allGlobalIntegrations.filter(
+          (integration) => integration.type === 'aws'
+        );
+      }
+
+      // Sub-Task 2: call fetchAwsInventory using the integration's configured region
+      const awsAgentResult =
+        awsIntegrations.length > 0
+          ? await fetchAwsInventory({
+              region: parseJson<{ region?: string }>(awsIntegrations[0].configJson, {}).region,
+            })
+          : { resources: [], source: 'mock' as const, region: '' };
+      console.info(
+        `[aws-inventory-agent] source=${awsAgentResult.source} resources=${awsAgentResult.resources.length}`
+      );
+
       let staticDiagramIntegrations = selectedIntegrations.filter(
         (integration) => integration.type === 'image' || integration.type === 'drawio'
       );
@@ -1055,14 +1087,16 @@ router.post('/analyze', async (req: Request, res: Response) => {
       const normalizedGraph = normalizeAndValidateGraphModel(rawGraph as CanonicalGraphModel);
       const mermaid = renderMermaidFromGraphModel(normalizedGraph.graphModel, 'planned');
       const terraformGraphLayer = buildLayerGraph(terraformAgentResult.resources, 'managed');
+      // Sub-Task 3: build the deployed graph layer from AWS inventory results
+      const deployedGraphLayer = buildLayerGraph(awsAgentResult.resources, 'deployed');
 
       const artifacts = runFullAnalysis({
         scanId: `scan-${Date.now().toString(36)}`,
         projectId: workspace.projectId,
         intentResources: combinedResources,
         terraformResources: terraformAgentResult.resources,
-        awsResources: [],
-        awsSource: 'mock',
+        awsResources: awsAgentResult.resources,
+        awsSource: awsAgentResult.source,
         scanConfig: {
           workspaceId: workspace.scanId,
           workspaceName: workspaceConfig.name ?? workspace.scanId,
@@ -1073,7 +1107,7 @@ router.post('/analyze', async (req: Request, res: Response) => {
           graphModel: {
             planned: normalizedGraph.graphModel.planned,
             terraform: terraformGraphLayer,
-            deployed: normalizedGraph.graphModel.deployed,
+            deployed: deployedGraphLayer,
           },
           graphModelValidation: normalizedGraph.validation,
           requiresHumanReview: normalizedGraph.requiresReview,
@@ -1092,6 +1126,11 @@ router.post('/analyze', async (req: Request, res: Response) => {
                 ? `integration:${terraformAgentResult.parsedIntegrations.join(',')}`
                 : 'not-configured',
             resourceCount: terraformAgentResult.resources.length,
+          },
+          aws: {
+            source: awsAgentResult.source,
+            region: awsAgentResult.region,
+            resourceCount: awsAgentResult.resources.length,
           },
         },
       });
@@ -1365,6 +1404,10 @@ router.get('/drift-runs', async (req: Request, res: Response) => {
             const hasGraphModel = Boolean(sources.graphModel && typeof sources.graphModel === 'object');
             const total = runFindings.length;
 
+            const runAt = run.completedAt || run.startedAt || run.createdAt;
+            const runLabel = runAt
+              ? `${new Date(runAt).toLocaleString()} · ${total} finding${total !== 1 ? 's' : ''}`
+              : `${run.scanId} · ${total} finding${total !== 1 ? 's' : ''}`;
             return {
               id: run.scanId,
               scanId: run.scanId,
@@ -1373,8 +1416,8 @@ router.get('/drift-runs', async (req: Request, res: Response) => {
               targetLayer: 'deployed',
               baseLabel: 'Planned Architecture',
               targetLabel: hasGraphModel ? 'Interpreted Graph' : 'Detected Drift',
-              label: run.scanId,
-              createdAt: run.completedAt || run.startedAt || run.createdAt,
+              label: runLabel,
+              createdAt: runAt,
               total,
               summary,
             };

@@ -98,11 +98,15 @@ export function DriftPage() {
     queryFn: async () => (await apiClient.getDriftRuns({ scanId })).data as { runs: DriftRun[] },
     enabled: Boolean(scanId),
   });
+
+  // When a specific run is selected, fetch its findings directly by run scanId.
+  // Otherwise fall back to the workspace scanId (resolves to the latest run).
+  const findingsScopeId = runId || scanId;
   const { data: findingsData, isLoading, error } = useQuery({
-    queryKey: ['findings', scanId],
+    queryKey: ['findings', findingsScopeId],
     queryFn: async () =>
-      (await apiClient.getFindings({ scanId })).data as { scanId: string; findings: DriftFinding[] },
-    enabled: Boolean(scanId),
+      (await apiClient.getFindings({ scanId: findingsScopeId })).data as { scanId: string; findings: DriftFinding[] },
+    enabled: Boolean(findingsScopeId),
   });
 
   const projects = projectsData ?? [];
@@ -193,16 +197,8 @@ export function DriftPage() {
   const visible = useMemo(() => {
     const q = filters.search.trim().toLowerCase();
     return decorated.filter((f) => {
-      if (projectId && runs.length > 0) {
-        const run = runs.find((r) => r.id === f.runId);
-        if (run && run.projectId !== projectId) {
-          return false;
-        }
-      }
-      if (scanId && f.scanId && f.scanId !== scanId) {
-        return false;
-      }
-      if (runId && f.runId !== runId) return false;
+      // Findings are already scoped to findingsScopeId (the selected run or
+      // workspace latest). No cross-ID filtering needed here.
       if (filters.severity.length && !filters.severity.includes(f.severity)) return false;
       if (filters.category.length && !filters.category.includes(f.category)) return false;
       if (filters.status.length && !filters.status.includes(f.status)) return false;
@@ -292,8 +288,8 @@ export function DriftPage() {
       )}
 
       <div className="mt-5 text-xs text-slate-500">
-        Showing {visible.length} of {decorated.filter((f) => !runId || f.runId === runId).length} drift
-        records {runId ? 'for this comparison' : 'across all comparisons'}.
+        Showing {visible.length} of {decorated.length} drift
+        records {runId ? 'for this scan run' : 'across all comparisons'}.
       </div>
 
       <div className="mt-2">
