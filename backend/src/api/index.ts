@@ -12,8 +12,16 @@ import type { IntegrationRow } from '../db/schema';
 import { eq, desc } from 'drizzle-orm';
 import fs from 'fs/promises';
 import path from 'path';
-import { getLatestArtifacts, runLiveAnalysis, persistAnalysis } from '../services/analysis';
+import { getLatestArtifacts, runFullAnalysis, persistAnalysis } from '../services/analysis';
+import { interpretStaticDiagram } from '../services/agents/designIntentStatic';
+import { fetchTerraformStateResources } from '../services/agents/terraformState';
+import {
+  normalizeAndValidateGraphModel,
+  renderMermaidFromGraphModel,
+  type CanonicalGraphModel,
+} from '../services/agents/graphModel';
 import type { NormalizedResource } from '../types/shared';
+import { config } from '../config';
 
 const router = express.Router();
 
@@ -52,6 +60,7 @@ interface ClientIntegration {
 // Frontend integration card only understands these statuses; older/seeded rows
 // may carry other values (e.g. 'active'), which we normalize so the UI renders.
 const CLIENT_STATUSES = new Set(['connected', 'error', 'unconfigured', 'syncing']);
+
 function normalizeStatus(status: string): string {
   if (CLIENT_STATUSES.has(status)) {
     return status;
@@ -144,6 +153,47 @@ async function latestScanRow() {
     .orderBy(desc(scans.createdAt))
     .limit(1);
   return rows[0] ?? null;
+}
+
+type ScanRow = typeof scans.$inferSelect;
+
+function scanConfig(row: ScanRow): Record<string, unknown> {
+  return parseJson<Record<string, unknown>>(row.configJson, {});
+}
+
+function workspaceIdForRun(row: ScanRow): string | null {
+  const config = scanConfig(row);
+  return typeof config.workspaceId === 'string' ? config.workspaceId : null;
+}
+
+async function latestRunForWorkspace(workspaceId: string): Promise<ScanRow | null> {
+  const completed = await db
+    .select()
+    .from(scans)
+    .where(eq(scans.status, 'completed'))
+    .orderBy(desc(scans.createdAt));
+  const matched = completed.find((row) => workspaceIdForRun(row) === workspaceId);
+  return matched ?? null;
+}
+
+async function resolveRequestedScan(requestedScanId: string): Promise<ScanRow | null> {
+  if (!requestedScanId) {
+    return latestScanRow();
+  }
+
+  const byId = (
+    await db.select().from(scans).where(eq(scans.scanId, requestedScanId)).limit(1)
+  )[0] ?? null;
+
+  if (!byId) {
+    return null;
+  }
+
+  if (byId.status !== 'configured') {
+    return byId;
+  }
+
+  return latestRunForWorkspace(byId.scanId);
 }
 
 // Maps a persisted finding row back to the API finding shape.
@@ -278,11 +328,16 @@ router.get('/health', (_req: Request, res: Response) => {
     status: 'ok',
     demoMode: process.env.DEMO_MODE === 'true',
     timestamp: new Date().toISOString(),
+    llm: {
+      enabled: config.llm.enabled,
+      provider: config.llm.provider,
+      model: config.llm.model,
+    },
   });
 });
 
 // Get all projects
-router.get('/projects', async (req: Request, res: Response) => {
+router.get('/projects', async (_req: Request, res: Response) => {
   try {
     const allProjects = await db.select().from(projects);
     if (allProjects.length > 0) {
@@ -374,7 +429,7 @@ router.post('/projects', async (req: Request, res: Response) => {
 router.get('/settings/projects', async (_req: Request, res: Response) => {
   try {
     const allProjects = await db.select().from(projects);
-    const allScans = await db.select().from(scans);
+    const allScans = await db.select().from(scans).where(eq(scans.status, 'configured'));
 
     const scanCountByProject = new Map<string, number>();
     for (const scan of allScans) {
@@ -405,7 +460,9 @@ router.get('/settings/scans', async (req: Request, res: Response) => {
           .where(eq(scans.projectId, projectId))
       : await db.select().from(scans);
 
-    const payload = projectScans.map((scan) => {
+    const workspaceRows = projectScans.filter((scan) => scan.status === 'configured');
+
+    const payload = workspaceRows.map((scan) => {
       const config = parseJson<{ name?: string; selectedIntegrations?: string[] }>(
         scan.configJson,
         {}
@@ -594,10 +651,10 @@ router.get('/projects/:projectId', async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Project not found' });
     }
     
-    res.json(project[0]);
+    return res.json(project[0]);
   } catch (error) {
     console.error('Error in project endpoint:', error);
-    res.status(500).json({ error: 'Failed to fetch project' });
+    return res.status(500).json({ error: 'Failed to fetch project' });
   }
 });
 
@@ -803,23 +860,247 @@ router.delete('/integrations/:integrationId', async (req: Request, res: Response
 // Run analysis (mock mode)
 router.post('/analyze', async (req: Request, res: Response) => {
   try {
+    const requestedWorkspaceScanId = String(req.body?.scanId ?? '').trim();
     const demoMode = process.env.DEMO_MODE === 'true';
     
     if (demoMode) {
       // Load mock scan result
       const mockDataPath = path.join(__dirname, '../../data/mock/scan-result.json');
       const mockData = JSON.parse(await fs.readFile(mockDataPath, 'utf-8'));
-      res.json(mockData);
+      return res.json(mockData);
     } else {
-      // Live mode: scan real AWS inventory (single region, mock fallback),
-      // detect drift, persist the scan, and return the result.
-      const artifacts = await runLiveAnalysis();
+      if (!requestedWorkspaceScanId) {
+        return res.status(400).json({
+          error: 'scanId is required for static-image analysis',
+        });
+      }
+
+      const workspace = (
+        await db
+          .select()
+          .from(scans)
+          .where(eq(scans.scanId, requestedWorkspaceScanId))
+          .limit(1)
+      )[0];
+
+      if (!workspace) {
+        return res.status(404).json({ error: 'Workspace scan not found' });
+      }
+
+      const workspaceConfig = parseJson<{ name?: string; selectedIntegrations?: string[] }>(
+        workspace.configJson,
+        {}
+      );
+      const selectedKinds = Array.isArray(workspaceConfig.selectedIntegrations)
+        ? workspaceConfig.selectedIntegrations
+        : [];
+      const selectedTokens = new Set(selectedKinds.map((value) => value.toLowerCase()));
+      const integrationMatchesSelection = (integration: IntegrationRow): boolean => {
+        const typeToken = integration.type.toLowerCase();
+        const idToken = integration.integrationId.toLowerCase();
+        const nameToken = integration.name.toLowerCase();
+        return (
+          selectedTokens.has(typeToken) ||
+          selectedTokens.has(idToken) ||
+          selectedTokens.has(nameToken)
+        );
+      };
+
+      const allProjectIntegrations = await db
+        .select()
+        .from(integrations)
+        .where(eq(integrations.projectId, workspace.projectId));
+      const selectedIntegrations = allProjectIntegrations.filter(integrationMatchesSelection);
+
+      const terraformIntegrations = selectedIntegrations.filter(
+        (integration) => integration.type === 'terraform'
+      );
+      if (terraformIntegrations.length === 0 && selectedTokens.has('terraform')) {
+        const allTerraformIntegrations = await db.select().from(integrations);
+        terraformIntegrations.push(
+          ...allTerraformIntegrations.filter(
+            (integration) =>
+              integration.type === 'terraform' && integrationMatchesSelection(integration)
+          )
+        );
+      }
+      const terraformAgentResult =
+        terraformIntegrations.length > 0
+          ? await fetchTerraformStateResources(terraformIntegrations)
+          : { resources: [], parsedIntegrations: [], warnings: [] };
+
+      for (const warning of terraformAgentResult.warnings) {
+        console.warn('[terraform-state-agent]', warning);
+      }
+
+      let staticDiagramIntegrations = selectedIntegrations.filter(
+        (integration) => integration.type === 'image' || integration.type === 'drawio'
+      );
+
+      if (staticDiagramIntegrations.length === 0) {
+        staticDiagramIntegrations = allProjectIntegrations.filter(
+          (integration) => integration.type === 'image' || integration.type === 'drawio'
+        );
+      }
+
+      if (staticDiagramIntegrations.length === 0) {
+        const allStaticIntegrations = await db
+          .select()
+          .from(integrations);
+        staticDiagramIntegrations = allStaticIntegrations.filter(
+          (integration) => integration.type === 'image' || integration.type === 'drawio'
+        );
+      }
+
+      if (staticDiagramIntegrations.length === 0) {
+        return res.status(400).json({
+          error: 'No static image integration found in workspace project or globally',
+        });
+      }
+
+      const interpretationErrors: string[] = [];
+      const interpreted = (
+        await Promise.all(
+          staticDiagramIntegrations.map(async (integration) => {
+            try {
+              const config = parseJson<Record<string, string>>(integration.configJson, {});
+              const storedPath =
+                config._image_file_path ||
+                config._diagram_file_path ||
+                config.image_file ||
+                config.diagram_file;
+              return await interpretStaticDiagram({
+                integrationId: integration.integrationId,
+                integrationName: integration.name,
+                storedPath,
+                originalFileName: config.image_file || config.diagram_file,
+              });
+            } catch (error) {
+              interpretationErrors.push(
+                error instanceof Error ? error.message : 'Unknown interpretation error'
+              );
+              return null;
+            }
+          })
+        )
+      ).filter((item): item is NonNullable<typeof item> => item !== null);
+
+      if (interpreted.length === 0) {
+        return res.status(400).json({
+          error:
+            interpretationErrors[0] ??
+            'Static image integration found but interpretation could not be performed',
+        });
+      }
+
+      const combinedResources = interpreted.flatMap((result) => result.resources);
+      const rawGraph = interpreted.reduce(
+        (acc, result) => {
+          acc.planned.nodes.push(...result.graphModel.planned.nodes);
+          acc.planned.edges.push(...result.graphModel.planned.edges);
+          return acc;
+        },
+        {
+          planned: {
+            nodes: [] as Array<{
+              id: string;
+              label: string;
+              type: string;
+              status: string;
+              confidence?: number;
+            }>,
+            edges: [] as Array<{
+              id: string;
+              source: string;
+              target: string;
+              label: string;
+              confidence?: number;
+            }>,
+          },
+          terraform: {
+            nodes: [] as Array<{
+              id: string;
+              label: string;
+              type: string;
+              status: string;
+              confidence?: number;
+            }>,
+            edges: [] as Array<{
+              id: string;
+              source: string;
+              target: string;
+              label: string;
+              confidence?: number;
+            }>,
+          },
+          deployed: {
+            nodes: [] as Array<{
+              id: string;
+              label: string;
+              type: string;
+              status: string;
+              confidence?: number;
+            }>,
+            edges: [] as Array<{
+              id: string;
+              source: string;
+              target: string;
+              label: string;
+              confidence?: number;
+            }>,
+          },
+        }
+      );
+
+      const normalizedGraph = normalizeAndValidateGraphModel(rawGraph as CanonicalGraphModel);
+      const mermaid = renderMermaidFromGraphModel(normalizedGraph.graphModel, 'planned');
+      const terraformGraphLayer = buildLayerGraph(terraformAgentResult.resources, 'managed');
+
+      const artifacts = runFullAnalysis({
+        scanId: `scan-${Date.now().toString(36)}`,
+        projectId: workspace.projectId,
+        intentResources: combinedResources,
+        terraformResources: terraformAgentResult.resources,
+        awsResources: [],
+        awsSource: 'mock',
+        scanConfig: {
+          workspaceId: workspace.scanId,
+          workspaceName: workspaceConfig.name ?? workspace.scanId,
+          name: workspaceConfig.name ?? workspace.scanId,
+          selectedIntegrations: selectedKinds,
+        },
+        sourceMetadata: {
+          graphModel: {
+            planned: normalizedGraph.graphModel.planned,
+            terraform: terraformGraphLayer,
+            deployed: normalizedGraph.graphModel.deployed,
+          },
+          graphModelValidation: normalizedGraph.validation,
+          requiresHumanReview: normalizedGraph.requiresReview,
+          mermaidDiagram: {
+            planned: mermaid,
+          },
+          intent: {
+            type: 'static-image',
+            path: 'integration-upload',
+            resourceCount: combinedResources.length,
+          },
+          terraform: {
+            type: terraformIntegrations.length > 0 ? 'integration' : 'state',
+            path:
+              terraformAgentResult.parsedIntegrations.length > 0
+                ? `integration:${terraformAgentResult.parsedIntegrations.join(',')}`
+                : 'not-configured',
+            resourceCount: terraformAgentResult.resources.length,
+          },
+        },
+      });
       persistAnalysis(artifacts);
-      res.json(artifacts.scan);
+      return res.json(artifacts.scan);
     }
   } catch (error) {
     console.error('Error in analyze endpoint:', error);
-    res.status(500).json({ error: 'Failed to run analysis' });
+    return res.status(500).json({ error: 'Failed to run analysis' });
   }
 });
 
@@ -837,15 +1118,7 @@ router.get('/findings', async (req: Request, res: Response) => {
       // Live mode: read findings for a requested scan (workspace) when provided,
       // otherwise fall back to the latest completed scan.
       const requestedScanId = String(req.query.scanId ?? '').trim();
-      const scan = requestedScanId
-        ? (
-            await db
-              .select()
-              .from(scans)
-              .where(eq(scans.scanId, requestedScanId))
-              .limit(1)
-          )[0] ?? null
-        : await latestScanRow();
+      const scan = await resolveRequestedScan(requestedScanId);
       if (!scan) {
         res.json({ scanId: null, findings: [] });
         return;
@@ -945,6 +1218,41 @@ router.get('/scans', async (_req: Request, res: Response) => {
   }
 });
 
+// Delete a completed scan run
+router.delete('/scans/:scanId', async (req: Request, res: Response) => {
+  try {
+    const scanId = String(req.params.scanId ?? '').trim();
+    if (!scanId) {
+      return res.status(400).json({ error: 'scanId is required' });
+    }
+
+    const existing = (
+      await db
+        .select()
+        .from(scans)
+        .where(eq(scans.scanId, scanId))
+        .limit(1)
+    )[0] ?? null;
+
+    if (!existing) {
+      return res.status(404).json({ error: 'Scan not found' });
+    }
+
+    if (existing.status !== 'completed') {
+      return res.status(400).json({ error: 'Only completed scan runs can be deleted' });
+    }
+
+    await db.delete(findingsTable).where(eq(findingsTable.scanId, scanId));
+    await db.delete(resourcesTable).where(eq(resourcesTable.scanId, scanId));
+    await db.delete(scans).where(eq(scans.scanId, scanId));
+
+    return res.json({ deleted: true, scanId });
+  } catch (error) {
+    console.error('Error deleting scan:', error);
+    return res.status(500).json({ error: 'Failed to delete scan' });
+  }
+});
+
 // Get drift runs (scan run comparisons)
 router.get('/drift-runs', async (req: Request, res: Response) => {
   try {
@@ -1004,6 +1312,7 @@ router.get('/drift-runs', async (req: Request, res: Response) => {
         baseLabel: labelForLayer(value.base),
         targetLabel: labelForLayer(value.target),
         label: `${labelForLayer(value.base)} → ${labelForLayer(value.target)}`,
+        createdAt: null,
         total: value.total,
         summary: value.summary,
       }));
@@ -1016,15 +1325,71 @@ router.get('/drift-runs', async (req: Request, res: Response) => {
     }
 
     const requestedScanId = String(req.query.scanId ?? '').trim();
-    const scan = requestedScanId
-      ? (
-          await db
-            .select()
-            .from(scans)
-            .where(eq(scans.scanId, requestedScanId))
-            .limit(1)
-        )[0] ?? null
-      : await latestScanRow();
+
+    if (requestedScanId) {
+      const requestedRow = (
+        await db
+          .select()
+          .from(scans)
+          .where(eq(scans.scanId, requestedScanId))
+          .limit(1)
+      )[0] ?? null;
+
+      if (requestedRow?.status === 'configured') {
+        const completed = await db
+          .select()
+          .from(scans)
+          .where(eq(scans.status, 'completed'))
+          .orderBy(desc(scans.createdAt));
+
+        const workspaceRuns = completed.filter(
+          (row) => workspaceIdForRun(row) === requestedRow.scanId
+        );
+
+        const runPayload = await Promise.all(
+          workspaceRuns.map(async (run) => {
+            const runFindings = await db
+              .select()
+              .from(findingsTable)
+              .where(eq(findingsTable.scanId, run.scanId));
+
+            const summary = { critical: 0, high: 0, medium: 0, low: 0, info: 0 };
+            for (const finding of runFindings) {
+              const severity = String(finding.severity ?? 'info') as keyof typeof summary;
+              if (severity in summary) {
+                summary[severity] += 1;
+              }
+            }
+
+            const sources = parseJson<Record<string, unknown>>(run.sourcesJson, {});
+            const hasGraphModel = Boolean(sources.graphModel && typeof sources.graphModel === 'object');
+            const total = runFindings.length;
+
+            return {
+              id: run.scanId,
+              scanId: run.scanId,
+              projectId: run.projectId,
+              baseLayer: 'planned',
+              targetLayer: 'deployed',
+              baseLabel: 'Planned Architecture',
+              targetLabel: hasGraphModel ? 'Interpreted Graph' : 'Detected Drift',
+              label: run.scanId,
+              createdAt: run.completedAt || run.startedAt || run.createdAt,
+              total,
+              summary,
+            };
+          })
+        );
+
+        return res.json({
+          scanId: requestedRow.scanId,
+          projectId: requestedRow.projectId,
+          runs: runPayload,
+        });
+      }
+    }
+
+    const scan = await resolveRequestedScan(requestedScanId);
     if (!scan) {
       return res.json({ scanId: null, projectId: null, runs: [] });
     }
@@ -1063,9 +1428,29 @@ router.get('/drift-runs', async (req: Request, res: Response) => {
       baseLabel: labelForLayer(value.base),
       targetLabel: labelForLayer(value.target),
       label: `${labelForLayer(value.base)} → ${labelForLayer(value.target)}`,
+      createdAt: scan.completedAt || scan.startedAt || scan.createdAt,
       total: value.total,
       summary: value.summary,
     }));
+
+    if (runs.length === 0) {
+      const sources = parseJson<Record<string, unknown>>(scan.sourcesJson, {});
+      if (sources.graphModel && typeof sources.graphModel === 'object') {
+        runs.push({
+          id: 'interpreted_graph',
+          scanId: scan.scanId,
+          projectId: scan.projectId,
+          baseLayer: 'planned',
+          targetLayer: 'deployed',
+          baseLabel: 'Planned Architecture',
+          targetLabel: 'Interpreted Graph',
+          label: 'Interpreted Diagram Graph',
+          createdAt: scan.completedAt || scan.startedAt || scan.createdAt,
+          total: 0,
+          summary: { critical: 0, high: 0, medium: 0, low: 0, info: 0 },
+        });
+      }
+    }
 
     return res.json({
       scanId: scan.scanId,
@@ -1137,40 +1522,76 @@ router.get('/graph', async (req: Request, res: Response) => {
         }
       };
       
-      res.json(mockGraph);
+      return res.json(mockGraph);
     } else {
-      // Live mode: build graph from requested scan when provided, otherwise
-      // from the latest completed scan.
       const requestedScanId = String(req.query.scanId ?? '').trim();
-      const scan = requestedScanId
+      const requestedRunId = String(req.query.runId ?? '').trim();
+      const requestedRunScan = requestedRunId
         ? (
             await db
               .select()
               .from(scans)
-              .where(eq(scans.scanId, requestedScanId))
+              .where(eq(scans.scanId, requestedRunId))
               .limit(1)
           )[0] ?? null
-        : await latestScanRow();
+        : null;
+      const scan = requestedRunScan ?? (await resolveRequestedScan(requestedScanId));
       const emptyLayer = { nodes: [], edges: [] };
       if (!scan) {
         res.json({ planned: emptyLayer, terraform: emptyLayer, deployed: emptyLayer });
         return;
       }
+
+      const sources = parseJson<Record<string, unknown>>(scan.sourcesJson, {});
+      const storedGraph = sources.graphModel;
       const rows = (
         await db
           .select()
           .from(resourcesTable)
           .where(eq(resourcesTable.scanId, scan.scanId))
       ).map(rowToResource);
-      res.json({
+      const resourceGraph = {
         planned: buildLayerGraph(rows.filter((r) => String(r.source) === 'intent'), 'planned'),
         terraform: buildLayerGraph(rows.filter((r) => String(r.source) === 'terraform'), 'managed'),
         deployed: buildLayerGraph(rows.filter((r) => String(r.source) === 'aws'), 'deployed'),
-      });
+      };
+
+      const hasLayerNodes = (layer: unknown): boolean => {
+        if (!layer || typeof layer !== 'object') {
+          return false;
+        }
+        const nodes = (layer as { nodes?: unknown }).nodes;
+        return Array.isArray(nodes) && nodes.length > 0;
+      };
+
+      if (
+        storedGraph &&
+        typeof storedGraph === 'object' &&
+        'planned' in storedGraph &&
+        'terraform' in storedGraph &&
+        'deployed' in storedGraph
+      ) {
+        const graph = storedGraph as {
+          planned: { nodes: unknown[]; edges: unknown[] };
+          terraform: { nodes: unknown[]; edges: unknown[] };
+          deployed: { nodes: unknown[]; edges: unknown[] };
+        };
+
+        return res.json({
+          planned: hasLayerNodes(graph.planned) ? graph.planned : resourceGraph.planned,
+          terraform: hasLayerNodes(graph.terraform)
+            ? graph.terraform
+            : resourceGraph.terraform,
+          deployed: hasLayerNodes(graph.deployed) ? graph.deployed : resourceGraph.deployed,
+        });
+      }
+
+      res.json(resourceGraph);
+      return;
     }
   } catch (error) {
     console.error('Error in graph endpoint:', error);
-    res.status(500).json({ error: 'Failed to fetch graph data' });
+    return res.status(500).json({ error: 'Failed to fetch graph data' });
   }
 });
 

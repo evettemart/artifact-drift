@@ -38,7 +38,7 @@ export const apiClient = {
     api.delete(`/integrations/${integrationId}`),
 
   // Analysis
-  runAnalysis: () => api.post('/analyze'),
+  runAnalysis: (payload?: { scanId?: string }) => api.post('/analyze', payload ?? {}),
 
   // Findings
   getFindings: (params?: {
@@ -60,6 +60,7 @@ export const apiClient = {
   // Scans
   getScans: (params?: { limit?: number }) =>
     api.get('/scans', { params }),
+  deleteScan: (scanId: string) => api.delete(`/scans/${encodeURIComponent(scanId)}`),
 
   // Settings
   getSettingsScans: (projectIdOrParams?: string | { projectId?: string }) => {
@@ -78,7 +79,7 @@ export const apiClient = {
     api.get('/report', { params }),
 
   // Graph
-  getGraph: (params?: { scanId?: string }) =>
+  getGraph: (params?: { scanId?: string; runId?: string }) =>
     api.get('/graph', { params }),
 };
 
