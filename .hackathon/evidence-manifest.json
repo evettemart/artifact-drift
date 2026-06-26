@@ -1,0 +1,81 @@
+{
+  "schema_version": "2026-06-18",
+  "team": {
+    "name": "Artifact Drift Team",
+    "slug": "artifact-drift-team",
+    "primary_contact": "Adrian Mora Lopez",
+    "members": [
+      "Adrian Mora Lopez",
+      "Valerio",
+      "Evette Martinez"
+    ]
+  },
+  "epic": {
+    "id": "ARCH-002",
+    "title": "Infrastructure State Reconciliation System",
+    "source": "Custom",
+    "product_focus": "Infrastructure as Code / Terraform / Cloud Architecture",
+    "slug": "arch-002-infrastructure-state-reconciliation"
+  },
+  "submission": {
+    "repo": "Labs/AI/artifact-drift",
+    "branch": "main",
+    "bundle_created_at": "2025-06-18T00:00:00Z",
+    "reviewer_notes": "Run in DEMO_MODE=true for a zero-credential demo. Set DEMO_MODE=false with optional AWS and LLM env vars for live mode. Both modes expose the full feature set. Start backend: `cd backend && npm run dev`. Start frontend: `cd frontend && npm run dev`. Open http://localhost:5174.",
+    "reuse_release_interest": "Yes"
+  },
+  "repo_access": {
+    "organizers_can_access": true,
+    "access_notes": "Repository is on the local Labs/AI/artifact-drift path. Branch: main. All work is committed."
+  },
+  "artifacts": {
+    "epic_md": ".hackathon/epic.md",
+    "team_profile_md": ".hackathon/team-profile.md",
+    "learning_notes_md": ".hackathon/learning-notes.md",
+    "repo_summary_json": ".hackathon/repo-summary.json",
+    "changed_files_txt": ".hackathon/changed-files.txt",
+    "review_criteria_concern_md": null,
+    "primary_paths": [
+      "backend/src/services/agents/driftAnalysis.ts",
+      "backend/src/services/agents/awsInventory.ts",
+      "backend/src/services/agents/terraformState.ts",
+      "backend/src/services/agents/designIntentStatic.ts",
+      "backend/src/services/agents/graphModel.ts",
+      "backend/src/services/analysis.ts",
+      "backend/src/api/index.ts",
+      "frontend/src/pages/GraphPage.tsx",
+      "frontend/src/pages/DriftPage.tsx",
+      "frontend/src/pages/DashboardPage.tsx",
+      "examples/architecture.yaml",
+      "examples/terraform-state.json",
+      "examples/aws-mock-inventory.json"
+    ],
+    "notable_outputs": [
+      "Three-layer infrastructure graph (Planned Architecture / Terraform State / AWS Runtime) rendered in ReactFlow",
+      "Drift detection engine: 8 drift types, index-based fuzzy matching, attribute/tag/SG comparison",
+      "Live AWS inventory via SDK with automatic mock fallback (examples/aws-mock-inventory.json)",
+      "LLM-powered static diagram interpreter: Claude vision API extracts resources and relationships from uploaded PNG/JPG architecture diagrams",
+      "Structured drift findings with per-type Terraform remediation commands and compliance score",
+      "Workspace-scoped Drift page: cascade Project → Workspace → Scan Run dropdowns, findings scoped to selected run",
+      "examples/example-report.html — pre-generated HTML drift report",
+      "SECURITY.md — threat model, whitelist specification, redaction controls"
+    ],
+    "external_links": []
+  },
+  "readiness_review": {
+    "present": true,
+    "relative_path": ".hackathon/readiness-review.md",
+    "exported": true
+  },
+  "safety": {
+    "real_customer_data_used": false,
+    "real_secrets_used": false,
+    "sensitive_data_concerns": "The backend/.env and backend/data/artifact-drift.db files are in .gitignore and are not committed. All examples use synthetic mock data. No real AWS account IDs, ARNs, or credentials appear in the repository."
+  },
+  "known_gaps": [
+    "No automated test suite — no .test.ts or .spec.ts files present; manual validation via scan runs",
+    "No demo notebook — walkthrough is done live via the web UI",
+    "Drift detection uses single-region, single-account AWS inventory; multi-account/multi-region is future work",
+    "detectDrift() in analysis.ts is now dead code (superseded by DriftAnalysisAgent engine) but not yet removed"
+  ]
+}

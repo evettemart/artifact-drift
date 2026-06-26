@@ -1,0 +1,111 @@
+{
+  "schema_version": "2026-06-18",
+  "git": {
+    "available": true,
+    "repo_root": "Labs/AI/artifact-drift",
+    "branch": "main",
+    "base_ref": "HEAD~8",
+    "head_ref": "HEAD (dbc353d2)"
+  },
+  "counts": {
+    "files_total": 137,
+    "files_changed": 137,
+    "lines_added": 37784,
+    "lines_deleted": 1,
+    "test_files": 0,
+    "docs_files": 7,
+    "config_files": 12,
+    "prompt_files": 7,
+    "notebook_files": 0
+  },
+  "languages": {
+    "TypeScript": { "files": 80, "lines": 18500 },
+    "TSX": { "files": 40, "lines": 9300 },
+    "JSON": { "files": 12, "lines": 4200 },
+    "Markdown": { "files": 25, "lines": 3800 },
+    "YAML": { "files": 2, "lines": 280 },
+    "CSS": { "files": 1, "lines": 120 }
+  },
+  "top_level_modules": [
+    "backend/src/services/agents",
+    "backend/src/services",
+    "backend/src/api",
+    "backend/src/db",
+    "backend/src/types",
+    "frontend/src/pages",
+    "frontend/src/components",
+    "frontend/src/lib",
+    "examples",
+    "docs"
+  ],
+  "changed_files": [
+    "backend/src/services/agents/driftAnalysis.ts",
+    "backend/src/services/agents/awsInventory.ts",
+    "backend/src/services/agents/terraformState.ts",
+    "backend/src/services/agents/designIntentStatic.ts",
+    "backend/src/services/agents/graphModel.ts",
+    "backend/src/services/analysis.ts",
+    "backend/src/api/index.ts",
+    "backend/src/config.ts",
+    "backend/src/db/schema.ts",
+    "backend/src/db/seed.ts",
+    "backend/src/types/shared.ts",
+    "frontend/src/pages/DriftPage.tsx",
+    "frontend/src/pages/GraphPage.tsx",
+    "frontend/src/pages/DashboardPage.tsx",
+    "frontend/src/pages/ScansPage.tsx",
+    "frontend/src/pages/IntegrationsPage.tsx",
+    "frontend/src/pages/ReportsPage.tsx",
+    "frontend/src/components/drift/DriftDetailDrawer.tsx",
+    "frontend/src/components/drift/DriftFilters.tsx",
+    "frontend/src/components/drift/DriftTable.tsx",
+    "frontend/src/components/graph/GraphCanvas.tsx",
+    "frontend/src/lib/api.ts",
+    "examples/architecture.yaml",
+    "examples/terraform-state.json",
+    "examples/aws-mock-inventory.json",
+    "examples/example-report.html",
+    "examples/example-report.json",
+    "README.md",
+    "SECURITY.md",
+    "BUILD_PLAN.md",
+    "PROJECT_SPEC.md",
+    "STATUS.md"
+  ],
+  "signals": {
+    "has_tests": false,
+    "has_docs": true,
+    "has_prompts": true,
+    "has_notebooks": false,
+    "has_ui_changes": true,
+    "has_infra_changes": true,
+    "has_security_sensitive_changes": true,
+    "likely_primary_work_type": "Code"
+  },
+  "verification": {
+    "commands_run": [
+      {
+        "command": "cd backend && npx tsc --noEmit",
+        "status": "passed",
+        "notes": "Zero TypeScript errors across all backend source files"
+      },
+      {
+        "command": "cd frontend && npx tsc --noEmit",
+        "status": "passed",
+        "notes": "Zero TypeScript errors across all frontend source files"
+      },
+      {
+        "command": "git diff --shortstat HEAD~8 HEAD",
+        "status": "passed",
+        "notes": "137 files changed, 37784 insertions(+), 1 deletion(-)"
+      }
+    ],
+    "commands_failed": [],
+    "notes": "No automated test suite present. All verification is via TypeScript compilation and manual scan runs. Both tsc checks pass cleanly."
+  },
+  "warnings": [
+    "No automated test suite (no .test.ts or .spec.ts files)",
+    "detectDrift() exported from analysis.ts is now dead code — superseded by DriftAnalysisAgent engine",
+    "Single-region AWS inventory only; multi-region is future work"
+  ]
+}
