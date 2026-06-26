@@ -51,6 +51,11 @@ interface IntegrationTab {
   layer: 'planned' | 'terraform' | 'deployed';
 }
 
+type GraphLayerPayload = {
+  nodes?: Array<Record<string, unknown>>;
+  edges?: Array<Record<string, unknown>>;
+};
+
 const INTEGRATION_LABEL: Record<string, string> = {
   image: 'Static Diagram',
   drawio: 'Draw.io Diagram',
@@ -181,26 +186,6 @@ export function GraphPage() {
     [workspaces, workspaceId]
   );
 
-  const integrationTabs = useMemo<IntegrationTab[]>(() => {
-    const kinds = selectedWorkspace?.selectedIntegrations ?? [];
-    if (!Array.isArray(kinds) || kinds.length === 0) {
-      return [
-        { id: 'planned', label: 'Planned (Intent)', layer: 'planned' },
-        { id: 'terraform', label: 'Terraform State', layer: 'terraform' },
-        { id: 'deployed', label: 'Deployed (AWS)', layer: 'deployed' },
-      ];
-    }
-
-    const dedupedKinds = Array.from(new Set(kinds));
-    return dedupedKinds.map(integrationTab);
-  }, [selectedWorkspace]);
-
-  useEffect(() => {
-    if (!integrationTabs.some((tab) => tab.id === activeTab)) {
-      setActiveTab(integrationTabs[0]?.id ?? 'planned');
-    }
-  }, [integrationTabs, activeTab]);
-
   const shouldLoadGraph = Boolean(projectId && workspaceId && runId);
   const { data: graphData, isLoading, error } = useQuery({
     queryKey: ['graph', workspaceId, runId],
@@ -210,6 +195,51 @@ export function GraphPage() {
     },
     enabled: shouldLoadGraph,
   });
+
+  const integrationTabs = useMemo<IntegrationTab[]>(() => {
+    const layerHasData = (layer: 'planned' | 'terraform' | 'deployed'): boolean => {
+      const payload = (graphData?.[layer] ?? null) as GraphLayerPayload | null;
+      if (!payload) {
+        return false;
+      }
+      return (payload.nodes?.length ?? 0) > 0 || (payload.edges?.length ?? 0) > 0;
+    };
+
+    const kinds = selectedWorkspace?.selectedIntegrations ?? [];
+    const defaultTabs: IntegrationTab[] = [
+      { id: 'planned', label: 'Planned (Intent)', layer: 'planned' },
+      { id: 'terraform', label: 'Terraform State', layer: 'terraform' },
+      { id: 'deployed', label: 'Deployed (AWS)', layer: 'deployed' },
+    ];
+
+    const fromWorkspace =
+      Array.isArray(kinds) && kinds.length > 0
+        ? Array.from(new Set(kinds)).map(integrationTab)
+        : defaultTabs;
+
+    const tabs = [...fromWorkspace];
+    const layersPresent = new Set(tabs.map((tab) => tab.layer));
+
+    if (layerHasData('planned') && !layersPresent.has('planned')) {
+      tabs.unshift({ id: 'planned', label: 'Planned (Intent)', layer: 'planned' });
+      layersPresent.add('planned');
+    }
+    if (layerHasData('terraform') && !layersPresent.has('terraform')) {
+      tabs.push({ id: 'terraform', label: 'Terraform State', layer: 'terraform' });
+      layersPresent.add('terraform');
+    }
+    if (layerHasData('deployed') && !layersPresent.has('deployed')) {
+      tabs.push({ id: 'deployed', label: 'Deployed (AWS)', layer: 'deployed' });
+    }
+
+    return tabs;
+  }, [selectedWorkspace, graphData]);
+
+  useEffect(() => {
+    if (!integrationTabs.some((tab) => tab.id === activeTab)) {
+      setActiveTab(integrationTabs[0]?.id ?? 'planned');
+    }
+  }, [integrationTabs, activeTab]);
 
   useEffect(() => {
     if (!projectId) {

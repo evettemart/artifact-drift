@@ -14,6 +14,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { getLatestArtifacts, runFullAnalysis, persistAnalysis } from '../services/analysis';
 import { interpretStaticDiagram } from '../services/agents/designIntentStatic';
+import { fetchTerraformStateResources } from '../services/agents/terraformState';
 import {
   normalizeAndValidateGraphModel,
   renderMermaidFromGraphModel,
@@ -894,12 +895,7 @@ router.post('/analyze', async (req: Request, res: Response) => {
         ? workspaceConfig.selectedIntegrations
         : [];
       const selectedTokens = new Set(selectedKinds.map((value) => value.toLowerCase()));
-
-      const allProjectIntegrations = await db
-        .select()
-        .from(integrations)
-        .where(eq(integrations.projectId, workspace.projectId));
-      const selectedIntegrations = allProjectIntegrations.filter((integration) => {
+      const integrationMatchesSelection = (integration: IntegrationRow): boolean => {
         const typeToken = integration.type.toLowerCase();
         const idToken = integration.integrationId.toLowerCase();
         const nameToken = integration.name.toLowerCase();
@@ -908,7 +904,34 @@ router.post('/analyze', async (req: Request, res: Response) => {
           selectedTokens.has(idToken) ||
           selectedTokens.has(nameToken)
         );
-      });
+      };
+
+      const allProjectIntegrations = await db
+        .select()
+        .from(integrations)
+        .where(eq(integrations.projectId, workspace.projectId));
+      const selectedIntegrations = allProjectIntegrations.filter(integrationMatchesSelection);
+
+      const terraformIntegrations = selectedIntegrations.filter(
+        (integration) => integration.type === 'terraform'
+      );
+      if (terraformIntegrations.length === 0 && selectedTokens.has('terraform')) {
+        const allTerraformIntegrations = await db.select().from(integrations);
+        terraformIntegrations.push(
+          ...allTerraformIntegrations.filter(
+            (integration) =>
+              integration.type === 'terraform' && integrationMatchesSelection(integration)
+          )
+        );
+      }
+      const terraformAgentResult =
+        terraformIntegrations.length > 0
+          ? await fetchTerraformStateResources(terraformIntegrations)
+          : { resources: [], parsedIntegrations: [], warnings: [] };
+
+      for (const warning of terraformAgentResult.warnings) {
+        console.warn('[terraform-state-agent]', warning);
+      }
 
       let staticDiagramIntegrations = selectedIntegrations.filter(
         (integration) => integration.type === 'image' || integration.type === 'drawio'
@@ -1031,12 +1054,13 @@ router.post('/analyze', async (req: Request, res: Response) => {
 
       const normalizedGraph = normalizeAndValidateGraphModel(rawGraph as CanonicalGraphModel);
       const mermaid = renderMermaidFromGraphModel(normalizedGraph.graphModel, 'planned');
+      const terraformGraphLayer = buildLayerGraph(terraformAgentResult.resources, 'managed');
 
       const artifacts = runFullAnalysis({
         scanId: `scan-${Date.now().toString(36)}`,
         projectId: workspace.projectId,
         intentResources: combinedResources,
-        terraformResources: [],
+        terraformResources: terraformAgentResult.resources,
         awsResources: [],
         awsSource: 'mock',
         scanConfig: {
@@ -1046,7 +1070,11 @@ router.post('/analyze', async (req: Request, res: Response) => {
           selectedIntegrations: selectedKinds,
         },
         sourceMetadata: {
-          graphModel: normalizedGraph.graphModel,
+          graphModel: {
+            planned: normalizedGraph.graphModel.planned,
+            terraform: terraformGraphLayer,
+            deployed: normalizedGraph.graphModel.deployed,
+          },
           graphModelValidation: normalizedGraph.validation,
           requiresHumanReview: normalizedGraph.requiresReview,
           mermaidDiagram: {
@@ -1056,6 +1084,14 @@ router.post('/analyze', async (req: Request, res: Response) => {
             type: 'static-image',
             path: 'integration-upload',
             resourceCount: combinedResources.length,
+          },
+          terraform: {
+            type: terraformIntegrations.length > 0 ? 'integration' : 'state',
+            path:
+              terraformAgentResult.parsedIntegrations.length > 0
+                ? `integration:${terraformAgentResult.parsedIntegrations.join(',')}`
+                : 'not-configured',
+            resourceCount: terraformAgentResult.resources.length,
           },
         },
       });
@@ -1508,6 +1544,26 @@ router.get('/graph', async (req: Request, res: Response) => {
 
       const sources = parseJson<Record<string, unknown>>(scan.sourcesJson, {});
       const storedGraph = sources.graphModel;
+      const rows = (
+        await db
+          .select()
+          .from(resourcesTable)
+          .where(eq(resourcesTable.scanId, scan.scanId))
+      ).map(rowToResource);
+      const resourceGraph = {
+        planned: buildLayerGraph(rows.filter((r) => String(r.source) === 'intent'), 'planned'),
+        terraform: buildLayerGraph(rows.filter((r) => String(r.source) === 'terraform'), 'managed'),
+        deployed: buildLayerGraph(rows.filter((r) => String(r.source) === 'aws'), 'deployed'),
+      };
+
+      const hasLayerNodes = (layer: unknown): boolean => {
+        if (!layer || typeof layer !== 'object') {
+          return false;
+        }
+        const nodes = (layer as { nodes?: unknown }).nodes;
+        return Array.isArray(nodes) && nodes.length > 0;
+      };
+
       if (
         storedGraph &&
         typeof storedGraph === 'object' &&
@@ -1515,20 +1571,22 @@ router.get('/graph', async (req: Request, res: Response) => {
         'terraform' in storedGraph &&
         'deployed' in storedGraph
       ) {
-        return res.json(storedGraph);
+        const graph = storedGraph as {
+          planned: { nodes: unknown[]; edges: unknown[] };
+          terraform: { nodes: unknown[]; edges: unknown[] };
+          deployed: { nodes: unknown[]; edges: unknown[] };
+        };
+
+        return res.json({
+          planned: hasLayerNodes(graph.planned) ? graph.planned : resourceGraph.planned,
+          terraform: hasLayerNodes(graph.terraform)
+            ? graph.terraform
+            : resourceGraph.terraform,
+          deployed: hasLayerNodes(graph.deployed) ? graph.deployed : resourceGraph.deployed,
+        });
       }
 
-      const rows = (
-        await db
-          .select()
-          .from(resourcesTable)
-          .where(eq(resourcesTable.scanId, scan.scanId))
-      ).map(rowToResource);
-      res.json({
-        planned: buildLayerGraph(rows.filter((r) => String(r.source) === 'intent'), 'planned'),
-        terraform: buildLayerGraph(rows.filter((r) => String(r.source) === 'terraform'), 'managed'),
-        deployed: buildLayerGraph(rows.filter((r) => String(r.source) === 'aws'), 'deployed'),
-      });
+      res.json(resourceGraph);
       return;
     }
   } catch (error) {
