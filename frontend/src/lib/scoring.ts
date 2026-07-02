@@ -2,9 +2,9 @@ import { SEVERITY_ORDER, type Severity } from './severity';
 
 /**
  * Deterministic compliance scoring. Every environment starts at a perfect
- * baseline of 100 and each open drift finding subtracts a fixed weight by
- * severity. The result is clamped to [0, 100]. No randomness, no LLM —
- * identical inputs always produce the same score.
+ * baseline of 100 and each open drift finding contributes a weighted penalty.
+ * The final score is a normalized exponential decay so heavily drifted
+ * environments do not collapse too quickly to 0.
  */
 export type SeverityCounts = Record<Severity, number>;
 
@@ -17,6 +17,8 @@ export const SEVERITY_WEIGHTS: Record<Severity, number> = {
 };
 
 export const SCORE_BASELINE = 100;
+// Higher value means slower score decay as penalties accumulate.
+export const SCORE_DECAY_FACTOR = 100;
 
 export interface ScoreBand {
   label: string;
@@ -35,7 +37,8 @@ export function computeComplianceScore(summary: SeverityCounts): number {
     (sum, s) => sum + SEVERITY_WEIGHTS[s] * (summary[s] ?? 0),
     0
   );
-  return Math.max(0, Math.min(100, SCORE_BASELINE - penalty));
+  const normalized = SCORE_BASELINE * Math.exp(-penalty / SCORE_DECAY_FACTOR);
+  return Math.max(0, Math.min(100, Math.round(normalized)));
 }
 
 export function scoreBand(score: number): ScoreBand {

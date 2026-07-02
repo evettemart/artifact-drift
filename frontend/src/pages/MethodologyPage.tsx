@@ -7,6 +7,7 @@ import { SEVERITY_META, SEVERITY_ORDER } from '../lib/severity';
 import {
   SCORE_BASELINE,
   SCORE_BANDS,
+  SCORE_DECAY_FACTOR,
   SEVERITY_WEIGHTS,
   computeComplianceScore,
   scoreBand,
@@ -59,12 +60,11 @@ export function MethodologyPage() {
           <p className="mt-3 text-sm text-slate-300">
             Every environment starts at a perfect baseline of{' '}
             <span className="font-semibold text-slate-100">{SCORE_BASELINE}</span>. Each open drift
-            finding subtracts a fixed penalty determined by its severity. The result is clamped to
-            the range 0–100.
+            finding adds a fixed penalty determined by its severity. The final score applies an
+            exponential decay so larger drift sets still produce meaningful, non-binary scores.
           </p>
           <div className="mt-4 rounded-lg border border-slate-800 bg-slate-900 px-4 py-3 font-mono text-sm text-slate-100">
-            score = max(0, {SCORE_BASELINE} − Σ ( weight<sub>severity</sub> × count
-            <sub>severity</sub> ))
+            score = round({SCORE_BASELINE} × e<sup>−totalPenalty / {SCORE_DECAY_FACTOR}</sup>)
           </div>
         </div>
 
@@ -196,7 +196,7 @@ function WorkedExample({ run }: { run: DriftRun }) {
 
       <div className="mt-4 flex items-center gap-3 rounded-lg border border-slate-800 bg-slate-900 px-4 py-3 font-mono text-sm">
         <span className="text-slate-300">
-          max(0, {SCORE_BASELINE} − {totalPenalty}) =
+          round({SCORE_BASELINE} × e<sup>−{totalPenalty}/{SCORE_DECAY_FACTOR}</sup>) =
         </span>
         <span className="text-lg font-semibold" style={{ color: band.color }}>
           {score}

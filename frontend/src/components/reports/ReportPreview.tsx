@@ -57,7 +57,7 @@ export function ReportPreview({ report }: { report: Report | undefined }) {
             </h3>
             {section.image && (
               <div
-                className="mb-3 overflow-hidden rounded-lg border border-slate-800 [&>svg]:block [&>svg]:h-auto [&>svg]:w-full"
+                className="mb-3 overflow-auto rounded-lg border border-slate-800 [&>svg]:mx-auto [&>svg]:block [&>svg]:h-auto [&>svg]:max-h-[380px] [&>svg]:w-full"
                 dangerouslySetInnerHTML={{ __html: section.image.svg }}
               />
             )}

@@ -365,11 +365,15 @@ export function calculateComplianceScore(
   findings: DriftFinding[],
   weights: Record<Severity, number> = DEFAULT_SEVERITY_WEIGHTS
 ): number {
+  // Backward compatibility: default backend weights are negative penalties.
+  // We normalize by absolute value so custom positive penalty maps also work.
   const totalPenalty = findings.reduce((sum, finding) => {
-    return sum + (weights[finding.severity] ?? 0);
+    return sum + Math.abs(weights[finding.severity] ?? 0);
   }, 0);
 
-  return Math.max(0, Math.min(100, 100 + totalPenalty));
+  const decayFactor = 100;
+  const normalized = 100 * Math.exp(-totalPenalty / decayFactor);
+  return Math.max(0, Math.min(100, Math.round(normalized)));
 }
 
 export function isNormalizedResource(obj: unknown): obj is NormalizedResource {

@@ -250,6 +250,38 @@ function parseJson<T>(value: string | null | undefined, fallback: T): T {
   }
 }
 
+function deriveComplianceScore(statisticsJson: string | null | undefined, fallback: number): number {
+  const stats = parseJson<{
+    bySeverity?: Record<string, number>;
+    driftsBySeverity?: Record<string, number>;
+  }>(statisticsJson, {});
+
+  const bySeverity = stats.bySeverity ?? stats.driftsBySeverity ?? {};
+  const counts = {
+    critical: Number(bySeverity.critical ?? 0),
+    high: Number(bySeverity.high ?? 0),
+    medium: Number(bySeverity.medium ?? 0),
+    low: Number(bySeverity.low ?? 0),
+    info: Number(bySeverity.info ?? 0),
+  };
+
+  const penalty =
+    counts.critical * 25 +
+    counts.high * 10 +
+    counts.medium * 4 +
+    counts.low * 1 +
+    counts.info * 0;
+
+  // Normalized decay keeps scores meaningful across large finding sets.
+  const normalized = 100 * Math.exp(-penalty / 100);
+  const derived = Math.max(0, Math.min(100, Math.round(normalized)));
+
+  if (!Number.isFinite(derived)) {
+    return fallback;
+  }
+  return derived;
+}
+
 type DriftLayer = 'planned' | 'terraform' | 'deployed';
 
 function runId(base: DriftLayer, target: DriftLayer): string {
@@ -1175,7 +1207,7 @@ router.get('/findings', async (req: Request, res: Response) => {
 });
 
 // Get resources for a scan
-router.get('/resources', async (_req: Request, res: Response) => {
+router.get('/resources', async (req: Request, res: Response) => {
   try {
     const demoMode = process.env.DEMO_MODE === 'true';
     
@@ -1187,8 +1219,12 @@ router.get('/resources', async (_req: Request, res: Response) => {
         awsResources: []
       });
     } else {
-      // Live mode: grouped resources from the latest persisted scan.
-      const scan = await latestScanRow();
+      // Live mode: grouped resources for requested workspace/run when provided,
+      // otherwise from the latest completed scan.
+      const requestedScanId = String(req.query.scanId ?? '').trim();
+      const scan = requestedScanId
+        ? await resolveRequestedScan(requestedScanId)
+        : await latestScanRow();
       if (!scan) {
         res.json({ intentResources: [], terraformResources: [], awsResources: [] });
         return;
@@ -1246,7 +1282,7 @@ router.get('/scans', async (_req: Request, res: Response) => {
           startedAt: scan.startedAt,
           completedAt: scan.completedAt,
           durationMs: scan.durationMs,
-          complianceScore: scan.complianceScore,
+          complianceScore: deriveComplianceScore(scan.statisticsJson, scan.complianceScore),
           status: scan.status,
         }))
       );

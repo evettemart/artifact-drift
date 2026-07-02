@@ -94,10 +94,52 @@ A suggested 7-step walkthrough for demos (works end to end in mock mode):
 1. **Show the approved architecture.** Open `examples/architecture.yaml` and describe the intended design (VPC, subnets, security groups, EC2, ALB, tags).
 2. **Show the Terraform state.** Open `examples/terraform-state.json` — what Terraform believes it manages.
 3. **Show the AWS runtime.** Open `examples/aws-mock-inventory.json` — what is actually deployed.
-4. **Run the analysis.** On the Dashboard, click **Run Scan**. The compliance score and statistics populate immediately.
+4. **Run the analysis.** Open the Scans page and run a scan for the selected workspace. The compliance score and statistics populate immediately.
 5. **Show Terraform and AWS diverging from the approved design.** Walk the Findings list and Graph view (Planned / Terraform / Deployed) to highlight the 8 drift types — e.g. a missing subnet, an unmanaged `debug-sg`, SSH opened outside Terraform on `web-sg`, and instance-type mismatch on `web-server`.
 6. **Generate a report.** Open the Reports page, select HTML or JSON, preview, and download. (A pre-generated sample lives at `examples/example-report.html` and `examples/example-report.json`.)
 7. **Explain future integrations.** Note the placeholder connectors for Confluence, HCP Terraform, AWS, and Slack, and how live mode swaps mock data for real sources without changing the UI.
+
+## 👤 Using Drifters (User Guide)
+
+This section describes how a platform engineer, security reviewer, or application owner uses Drifters in daily operations.
+
+### Typical User Workflow
+
+1. Select **Project**, **Workspace**, and optional **Run** from the global top bar.
+2. Go to **Scans** and run analysis for the selected workspace.
+3. Open **Dashboard** to review compliance score, drift totals, and trend signals for the selected scope.
+4. Open **Drift** to investigate findings, apply filters, and track status (acknowledged, resolved, suppressed).
+5. Open **Graph** to compare Planned, Terraform, and Deployed views and visually confirm drift patterns.
+6. Open **Reports** to generate an executive or audit-friendly report (HTML/PDF/JSON) for the selected run.
+7. Share the report with engineering and governance stakeholders, then iterate on remediation.
+
+```mermaid
+flowchart TD
+  A[Select Scope\nProject -> Workspace -> Run] --> B[Run Scan\nScans Page]
+  B --> C[Review Health\nDashboard]
+  C --> D[Investigate Findings\nDrift Page]
+  D --> E[Validate Topology\nGraph Page]
+  E --> F[Generate Deliverable\nReports Page]
+  F --> G[Share and Remediate\nEngineering + Governance]
+  G --> A
+```
+
+### What Each Page Is For
+
+- **Dashboard**: quick health snapshot for the selected scope (score, severity, project posture).
+- **Projects**: manage workspace-level configuration and source integrations.
+- **Scans**: execute analyses and view run history.
+- **Graph**: inspect architecture shape and relationships across layers.
+- **Drift**: triage individual findings and operational status.
+- **Reports**: create downloadable evidence packages for stakeholders.
+
+### Fast Path For New Users
+
+1. Start in mock mode.
+2. Pick a project/workspace from the global selectors.
+3. Run one scan from **Scans**.
+4. Review **Dashboard** and **Drift**.
+5. Export a PDF report from **Reports**.
 
 ## 📋 Features
 
@@ -338,6 +380,28 @@ For issues and questions:
 - Open an issue on GitHub
 - Check the documentation in `/docs`
 - Review example files in `/examples`
+
+## 🚀 Future Enhancements
+
+The following roadmap ideas focus on improving enterprise readiness, automation depth, and AI-assisted operations.
+
+| Enhancement | Description | AI Role | Priority |
+|---|---|---|---|
+| Integration Scope Filtering by Domain | Add capability to restrict each integration/diagram scope (for example, only Network or only Kubernetes resources). | Use NLP prompts + resource classification to map user intent to filtered graph views and findings subsets. | High |
+| AI-Enhanced Diagram and Integration Logic | Improve parsing, normalization, and reconciliation for architecture diagrams and external integrations. | Use model-assisted entity extraction, relationship inference, and confidence scoring for graph construction. | High |
+| Automated Test Enforcement on Commit | Add enhanced test capabilities that run automated checks for every git commit. | Use AI-generated test cases, edge-case suggestions, and flaky-test detection to strengthen pre-commit coverage. | High |
+| Production Readiness + CI/CD | Prepare app for production deployment with documented requirements and full CI/CD pipelines. | Use AI to generate environment baselines, deployment manifests, policy checks, and release notes. | High |
+| Expanded Integrations | Add more integration capabilities (for example Confluence, Vault, Terraform Enterprise). | Use AI adapters to normalize heterogeneous APIs into a common resource/graph schema. | High |
+| Notifications and Alerting | Add notification capabilities (for example email and Slack) for drift events and policy violations. | Use AI summarization to produce role-specific, actionable alert messages with remediation context. | Medium |
+| Drift Issue Reporting | Add native actions to open GitHub Issues or Jira tickets from drift findings. | Use AI to auto-draft issue titles, severity labels, acceptance criteria, and fix guidance. | Medium |
+| AI Remediation Planner | Generate phased remediation plans grouped by risk, blast radius, and dependency order. | Build AI planning that proposes safe change sequences with rollback hints. | Medium |
+| Predictive Drift Risk Scoring | Predict likely future drift hotspots before violations happen. | Train AI models on historical scans to identify high-risk services and misconfiguration trends. | Medium |
+| Policy Authoring Assistant | Help teams create and refine governance policies from plain-language requirements. | Convert natural-language controls into enforceable policy templates and validation tests. | Medium |
+| AI Change Impact Simulation | Simulate the likely impact of Terraform or architecture changes before deployment. | Use AI what-if analysis against graph dependencies to estimate affected resources and drift risk. | Medium |
+| Executive Insights and Natural Language Q&A | Add chat-style Q&A for leadership and auditors to query drift posture quickly. | Use AI summarization and retrieval to answer questions from findings, scores, and reports. | Low |
+| Multi-Cloud and Platform Expansion | Extend support to Azure, GCP, and Kubernetes-native platforms. | Use AI normalization to align cloud-specific metadata to unified drift categories. | Low |
+
+Roadmap sequencing can be adjusted based on user feedback, compliance priorities, and operational maturity goals.
 
 ---
 
