@@ -1,4 +1,4 @@
-# Architecture Drift Copilot
+# Architecture Drift
 
 An AI-powered tool for detecting and analyzing drift between intended architecture, Terraform state, and deployed AWS infrastructure.
 
