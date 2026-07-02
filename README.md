@@ -2,7 +2,39 @@
 
 An AI-powered tool for detecting and analyzing drift between intended architecture, Terraform state, and deployed AWS infrastructure.
 
+Purpose: Help teams continuously detect, understand, and remediate infrastructure drift before it causes reliability, security, or compliance issues.
+
 > **Current status:** The application is **mock-backed** today — all screens and features are fully functional using pre-generated mock data. Real agent implementations (live AWS/Terraform/LLM) are in progress; see `STATUS.md`.
+
+## 🧠 Core Concepts
+
+Use the following definitions to understand how data is organized and how the analysis flow works.
+
+| Concept | Definition | Example |
+|---|---|---|
+| Project | The top-level boundary for a team, platform, or application domain. It groups related workspaces and integrations. | `payments-platform` |
+| Workspace | A scoped environment within a project that points to a specific architecture/integration setup (for example prod, stage, eu-west). | `payments-prod` |
+| Integration | A configured source connector that provides architecture or infrastructure data (for example Terraform, AWS, Confluence). | `Terraform State`, `AWS Runtime` |
+| Scan | A single analysis execution for a selected workspace at a point in time. A scan produces score, findings, and graph data. | `scan-mr38z8e9` |
+| Graph | The structured topology view generated from scan data across layers (planned, terraform, deployed), including nodes and relationships. | Planned VPC -> Subnet -> EC2 graph |
+| Drift | A detected mismatch between expected architecture state and observed state, including severity, type, and remediation context. | Missing subnet, unmanaged security group |
+
+```mermaid
+flowchart LR
+  P[Project] --> W[Workspace]
+  P --> I[Integrations]
+  I --> W
+  W --> S[Scan]
+  S --> G[Graph]
+  S --> D[Drift Findings]
+  G --> D
+```
+
+Interpretation of the diagram:
+- A **Project** contains one or more **Workspaces**.
+- **Integrations** are attached at project/workspace scope and feed scan inputs.
+- Each **Scan** runs in one workspace and produces both **Graph** data and **Drift** findings.
+- **Drift** findings are evidence derived from differences seen in graph layers and resource states.
 
 ## Operating Modes
 
@@ -140,36 +172,6 @@ flowchart TD
 3. Run one scan from **Scans**.
 4. Review **Dashboard** and **Drift**.
 5. Export a PDF report from **Reports**.
-
-## 🧠 Core Concepts
-
-Use the following definitions to understand how data is organized and how the analysis flow works.
-
-| Concept | Definition | Example |
-|---|---|---|
-| Project | The top-level boundary for a team, platform, or application domain. It groups related workspaces and integrations. | `payments-platform` |
-| Workspace | A scoped environment within a project that points to a specific architecture/integration setup (for example prod, stage, eu-west). | `payments-prod` |
-| Integration | A configured source connector that provides architecture or infrastructure data (for example Terraform, AWS, Confluence). | `Terraform State`, `AWS Runtime` |
-| Scan | A single analysis execution for a selected workspace at a point in time. A scan produces score, findings, and graph data. | `scan-mr38z8e9` |
-| Graph | The structured topology view generated from scan data across layers (planned, terraform, deployed), including nodes and relationships. | Planned VPC -> Subnet -> EC2 graph |
-| Drift | A detected mismatch between expected architecture state and observed state, including severity, type, and remediation context. | Missing subnet, unmanaged security group |
-
-```mermaid
-flowchart LR
-  P[Project] --> W[Workspace]
-  P --> I[Integrations]
-  I --> W
-  W --> S[Scan]
-  S --> G[Graph]
-  S --> D[Drift Findings]
-  G --> D
-```
-
-Interpretation of the diagram:
-- A **Project** contains one or more **Workspaces**.
-- **Integrations** are attached at project/workspace scope and feed scan inputs.
-- Each **Scan** runs in one workspace and produces both **Graph** data and **Drift** findings.
-- **Drift** findings are evidence derived from differences seen in graph layers and resource states.
 
 ## 📋 Features
 
