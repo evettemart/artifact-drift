@@ -4,8 +4,6 @@ An AI-powered tool for detecting and analyzing drift between intended architectu
 
 Purpose: Help teams continuously detect, understand, and remediate infrastructure drift before it causes reliability, security, or compliance issues.
 
-> **Current status:** The application is **mock-backed** today — all screens and features are fully functional using pre-generated mock data. Real agent implementations (live AWS/Terraform/LLM) are in progress; see `STATUS.md`.
-
 ## 🧠 Core Concepts
 
 Use the following definitions to understand how data is organized and how the analysis flow works.
