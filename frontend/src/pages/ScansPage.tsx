@@ -163,7 +163,12 @@ export function ScansPage() {
   const runScanMutation = useMutation({
     mutationFn: async (scanId: string) => {
       const response = await apiClient.runAnalysis({ scanId });
-      return response.data as { scanId: string };
+      return response.data as {
+        scanId: string;
+        complianceScore?: number;
+        startedAt?: string;
+        completedAt?: string;
+      };
     },
     onSuccess: async (data) => {
       if (timerRef.current !== null) {
@@ -172,7 +177,7 @@ export function ScansPage() {
       }
       setLastRunScanId(data.scanId);
       setIsRunning(false);
-      setFinishedAt(new Date().toISOString());
+      setFinishedAt(data.completedAt ?? new Date().toISOString());
       setProgressRows((prev) =>
         prev.map((row) => ({
           ...row,
@@ -180,9 +185,16 @@ export function ScansPage() {
           status: 'completed',
         }))
       );
-      appendLog(`Scan finished successfully. Run id: ${data.scanId}`, 'success');
+      appendLog(
+        `Scan finished successfully. Run id: ${data.scanId}${
+          typeof data.complianceScore === 'number' ? ` · Score: ${data.complianceScore}/100` : ''
+        }`,
+        'success'
+      );
 
       await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['scans-history'] }),
+        queryClient.invalidateQueries({ queryKey: ['scans'] }),
         queryClient.invalidateQueries({ queryKey: ['drift-runs', selectedWorkspaceId] }),
         queryClient.invalidateQueries({ queryKey: ['graph', selectedWorkspaceId] }),
       ]);

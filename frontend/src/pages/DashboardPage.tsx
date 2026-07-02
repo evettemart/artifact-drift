@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import {
   BarChart,
   Bar,
@@ -13,13 +13,14 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from 'recharts';
-import { Activity, ArrowRight, Clock, Info, Play } from 'lucide-react';
+import { Activity, ArrowRight, Info } from 'lucide-react';
 import { LoadingState } from '../components/LoadingSpinner';
 import { ErrorAlert } from '../components/ErrorAlert';
 import apiClient from '../lib/api';
 import { formatDate } from '../lib/utils';
 import { SEVERITY_META, SEVERITY_ORDER } from '../lib/severity';
 import { computeComplianceScore, scoreBand } from '../lib/scoring';
+import { useGlobalScope } from '../context/GlobalScopeContext';
 
 const SEVERITY_COLORS: Record<string, string> = {
   critical: '#ef4444',
@@ -44,85 +45,102 @@ const CHART_TOOLTIP_STYLE = {
   fontSize: 12,
 };
 
+function comparisonFromType(
+  driftType: string,
+): { base: 'planned' | 'terraform' | 'deployed'; target: 'planned' | 'terraform' | 'deployed' } {
+  switch (driftType) {
+    case 'missing':
+    case 'relationship_broken':
+    case 'edge':
+    case 'design':
+      return { base: 'planned', target: 'deployed' };
+    case 'version_mismatch':
+      return { base: 'planned', target: 'terraform' };
+    default:
+      return { base: 'terraform', target: 'deployed' };
+  }
+}
+
 export function DashboardPage() {
-  const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const [isRunning, setIsRunning] = useState(false);
+  const { projectId, workspaceId, runId, projects, workspaces, selectedProject } = useGlobalScope();
 
-  const { data: projectsData, isLoading: projectsLoading } = useQuery({
-    queryKey: ['projects'],
-    queryFn: async () => {
-      const response = await apiClient.getProjects();
-      return response.data;
-    },
-  });
-
-  const currentProject =
-    Array.isArray(projectsData) && projectsData.length > 0 ? projectsData[0] : null;
+  const currentProject = selectedProject;
 
   const { data: integrationsData } = useQuery({
-    queryKey: ['integrations', currentProject?.projectId],
+    queryKey: ['integrations', projectId],
     queryFn: async () => {
-      const response = await apiClient.getIntegrations({ projectId: currentProject?.projectId });
+      const response = await apiClient.getIntegrations({ projectId: projectId || undefined });
       return response.data;
     },
-    enabled: !!currentProject,
+    enabled: Boolean(projectId),
   });
 
   const { data: scansData, isLoading: scansLoading, error: scansError } = useQuery({
     queryKey: ['scans'],
     queryFn: async () => {
-      const response = await apiClient.getScans({ limit: 1 });
+      const response = await apiClient.getScans({ limit: 100 });
       return response.data;
     },
-  });
-
-  const { data: findingsData } = useQuery({
-    queryKey: ['findings'],
-    queryFn: async () => {
-      const response = await apiClient.getFindings();
-      return response.data;
-    },
-    enabled: !!(Array.isArray(scansData) && scansData.length > 0),
-  });
-
-  const { data: resourcesData } = useQuery({
-    queryKey: ['resources'],
-    queryFn: async () => {
-      const response = await apiClient.getResources();
-      return response.data;
-    },
-    enabled: !!(Array.isArray(scansData) && scansData.length > 0),
   });
 
   const { data: driftRunsData } = useQuery({
-    queryKey: ['drift-runs'],
+    queryKey: ['drift-runs', workspaceId],
     queryFn: async () => {
-      const response = await apiClient.getDriftRuns();
+      const response = await apiClient.getDriftRuns({ scanId: workspaceId || undefined });
       return response.data;
     },
-    enabled: !!(Array.isArray(scansData) && scansData.length > 0),
+    enabled: Boolean(workspaceId),
   });
 
-  const runAnalysisMutation = useMutation({
-    mutationFn: () => apiClient.runAnalysis(),
-    onMutate: () => {
-      setIsRunning(true);
+  const runs = Array.isArray(driftRunsData?.runs) ? driftRunsData.runs : [];
+  const selectedRun = runId ? runs.find((run: any) => run.id === runId) ?? null : null;
+  const findingsScopeId = selectedRun?.scanId || workspaceId;
+
+  const { data: findingsData } = useQuery({
+    queryKey: ['findings', findingsScopeId, runId],
+    queryFn: async () => {
+      const response = await apiClient.getFindings({ scanId: findingsScopeId || undefined });
+      return response.data;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['scans'] });
-      queryClient.invalidateQueries({ queryKey: ['findings'] });
-      queryClient.invalidateQueries({ queryKey: ['resources'] });
-      setTimeout(() => setIsRunning(false), 1000);
-    },
-    onError: () => {
-      setIsRunning(false);
-    },
+    enabled: Boolean(findingsScopeId),
   });
 
-  const latestScan = Array.isArray(scansData) ? scansData[0] : null;
-  const findings = findingsData?.findings || [];
-  const driftRuns = driftRunsData?.runs || [];
+  const { data: resourcesData } = useQuery({
+    queryKey: ['resources', findingsScopeId],
+    queryFn: async () => {
+      const response = await apiClient.getResources({ scanId: findingsScopeId || undefined });
+      return response.data;
+    },
+    enabled: Boolean(findingsScopeId),
+  });
+
+  const allScans = Array.isArray(scansData) ? scansData : [];
+  const projectScans = projectId
+    ? allScans.filter((scan: any) => scan.projectId === projectId)
+    : allScans;
+  const resolvedFindingsScanId = findingsData?.scanId ?? findingsScopeId;
+  const latestScan =
+    projectScans.find((scan: any) => scan.scanId === resolvedFindingsScanId) ??
+    projectScans[0] ??
+    null;
+  const findingsRaw = findingsData?.findings || [];
+  const findings = runId
+    ? findingsRaw.filter((finding: any) => {
+        if (finding?.runId && finding.runId === runId) return true;
+        if (selectedRun?.baseLayer && selectedRun?.targetLayer) {
+          const driftType = String(finding?.driftType ?? '');
+          const comparison = comparisonFromType(driftType);
+          return comparison.base === selectedRun.baseLayer && comparison.target === selectedRun.targetLayer;
+        }
+        return false;
+      })
+    : findingsRaw;
+  const allDriftRuns = runs;
+  const driftRuns = runId
+    ? allDriftRuns.filter((run: any) => run.id === runId)
+    : allDriftRuns;
+  const scopedRuns = projectScans;
 
   const resourceCounts = {
     intent: Array.isArray(resourcesData?.intentResources) ? resourcesData.intentResources.length : 0,
@@ -156,7 +174,68 @@ export function DashboardPage() {
     fill: CATEGORY_META[key]?.fill ?? '#64748b',
   }));
 
-  if (scansLoading || projectsLoading) {
+  const integrations = Array.isArray(integrationsData) ? integrationsData : [];
+
+  const score = Number(latestScan?.complianceScore ?? 0);
+  const scoreColor = score >= 80 ? '#34d399' : score >= 50 ? '#fbbf24' : '#f87171';
+
+  const driftQuerySuffix = runId ? `&runId=${encodeURIComponent(runId)}` : '';
+  const severityCards = [
+    { key: 'total', label: 'Total Drifts', value: findings.length, color: '#e2e8f0', to: runId ? `/drift?runId=${encodeURIComponent(runId)}` : '/drift' },
+    { key: 'critical', label: 'Critical', value: bySeverity.critical || 0, color: SEVERITY_COLORS.critical, to: `/drift?severity=critical${driftQuerySuffix}` },
+    { key: 'high', label: 'High', value: bySeverity.high || 0, color: SEVERITY_COLORS.high, to: `/drift?severity=high${driftQuerySuffix}` },
+    { key: 'medium', label: 'Medium', value: bySeverity.medium || 0, color: SEVERITY_COLORS.medium, to: `/drift?severity=medium${driftQuerySuffix}` },
+    { key: 'low', label: 'Low', value: bySeverity.low || 0, color: SEVERITY_COLORS.low, to: `/drift?severity=low${driftQuerySuffix}` },
+    { key: 'info', label: 'Info', value: bySeverity.info || 0, color: SEVERITY_COLORS.info, to: `/drift?severity=info${driftQuerySuffix}` },
+  ];
+
+  const topProjects = useMemo(() => {
+    return projects
+      .map((project: any) => {
+        const projectScans = allScans.filter((scan: any) => scan.projectId === project.projectId);
+        const runCount = projectScans.length;
+        const avgScore =
+          runCount > 0
+            ? Math.round(
+                projectScans.reduce((sum: number, scan: any) => sum + Number(scan.complianceScore ?? 0), 0) /
+                  runCount,
+              )
+            : 0;
+        const latest = projectScans[0] ?? null;
+        return {
+          projectId: project.projectId,
+          name: project.name,
+          runCount,
+          avgScore,
+          latestScore: latest ? Number(latest.complianceScore ?? 0) : null,
+          latestAt: latest?.startedAt ?? null,
+        };
+      })
+      .sort((a, b) => {
+        const scoreDelta = (b.latestScore ?? -1) - (a.latestScore ?? -1);
+        if (scoreDelta !== 0) return scoreDelta;
+        return b.runCount - a.runCount;
+      })
+      .slice(0, 5);
+  }, [projects, allScans]);
+
+  const fleetInsights = useMemo(() => {
+    const avgFleetScore =
+      scopedRuns.length > 0
+        ? Math.round(scopedRuns.reduce((sum: number, scan: any) => sum + Number(scan.complianceScore ?? 0), 0) / scopedRuns.length)
+        : 0;
+    const atRiskProjects = topProjects.filter((project) => (project.latestScore ?? 100) < 65).length;
+
+    return {
+      totalProjects: projects.length,
+      totalWorkspaces: workspaces.length,
+      totalRuns: scopedRuns.length,
+      avgFleetScore,
+      atRiskProjects,
+    };
+  }, [projects, workspaces, scopedRuns, topProjects]);
+
+  if (scansLoading) {
     return <LoadingState message="Loading dashboard..." />;
   }
 
@@ -169,47 +248,28 @@ export function DashboardPage() {
     );
   }
 
-  const integrations = Array.isArray(integrationsData) ? integrationsData : [];
-
-  const score = latestScan?.complianceScore || 0;
-  const scoreColor = score >= 80 ? '#34d399' : score >= 50 ? '#fbbf24' : '#f87171';
-
-  const severityCards = [
-    { key: 'total', label: 'Total Drifts', value: findings.length, color: '#e2e8f0', to: '/drift' },
-    { key: 'critical', label: 'Critical', value: bySeverity.critical || 0, color: SEVERITY_COLORS.critical, to: '/drift?severity=critical' },
-    { key: 'high', label: 'High', value: bySeverity.high || 0, color: SEVERITY_COLORS.high, to: '/drift?severity=high' },
-    { key: 'medium', label: 'Medium', value: bySeverity.medium || 0, color: SEVERITY_COLORS.medium, to: '/drift?severity=medium' },
-    { key: 'low', label: 'Low', value: bySeverity.low || 0, color: SEVERITY_COLORS.low, to: '/drift?severity=low' },
-    { key: 'info', label: 'Info', value: bySeverity.info || 0, color: SEVERITY_COLORS.info, to: '/drift?severity=info' },
-  ];
-
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-100">Dashboard</h1>
-          <p className="mt-1 text-sm text-slate-400">
-            {currentProject ? currentProject.name : 'Overview of architecture drift analysis'}
-          </p>
-        </div>
-        <button
-          onClick={() => runAnalysisMutation.mutate()}
-          disabled={isRunning}
-          className="inline-flex items-center gap-2 rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {isRunning ? (
-            <>
-              <Clock className="h-4 w-4 animate-spin" />
-              Running...
-            </>
-          ) : (
-            <>
-              <Play className="h-4 w-4" />
-              Run Scan
-            </>
+      <div className="rounded-xl border border-slate-800 bg-slate-950 p-6 text-slate-100">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h1 className="text-xl font-semibold text-slate-100">Dashboard</h1>
+            <p className="mt-1 text-sm text-slate-300">
+              Overview of architecture drift analysis and operational posture.
+            </p>
+            <p className="mt-2 text-sm text-slate-200">
+              <span className="text-slate-400">Project:</span>{' '}
+              <span className="font-medium text-slate-100">
+                {currentProject?.name || 'No project selected'}
+              </span>
+            </p>
+          </div>
+          {workspaceId && (
+            <span className="rounded-md border border-slate-700 bg-slate-800 px-2.5 py-1 font-mono text-xs text-slate-300">
+              workspace: {workspaceId}
+            </span>
           )}
-        </button>
+        </div>
       </div>
 
       {/* Project & Integrations */}
@@ -237,9 +297,9 @@ export function DashboardPage() {
           </div>
           {integrations.length > 0 && (
             <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-              {integrations.map((integration: any) => (
+              {integrations.map((integration: any, index: number) => (
                 <div
-                  key={integration.integrationId}
+                  key={integration.integrationId || `${integration.name}-${index}`}
                   className="rounded-lg border border-slate-800 bg-slate-900 p-4"
                 >
                   <div className="mb-2 flex items-center justify-between">
@@ -267,13 +327,6 @@ export function DashboardPage() {
           <p className="mt-1 text-sm text-slate-400">
             Run your first scan to start analyzing architecture drift
           </p>
-          <button
-            onClick={() => runAnalysisMutation.mutate()}
-            className="mt-4 inline-flex items-center gap-2 rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-sky-500"
-          >
-            <Play className="h-4 w-4" />
-            Run First Scan
-          </button>
         </div>
       ) : (
         <>
@@ -403,7 +456,12 @@ export function DashboardPage() {
                         outerRadius={90}
                         paddingAngle={2}
                         dataKey="value"
-                        onClick={(d: any) => d?.key && navigate(`/drift?category=${d.key}`)}
+                        onClick={(d: any) =>
+                          d?.key &&
+                          navigate(
+                            `/drift?category=${d.key}${runId ? `&runId=${encodeURIComponent(runId)}` : ''}`,
+                          )
+                        }
                         className="cursor-pointer focus:outline-none"
                       >
                         {typeChartData.map((entry) => (
@@ -423,7 +481,11 @@ export function DashboardPage() {
                     {typeChartData.map((entry) => (
                       <button
                         key={entry.key}
-                        onClick={() => navigate(`/drift?category=${entry.key}`)}
+                        onClick={() =>
+                          navigate(
+                            `/drift?category=${entry.key}${runId ? `&runId=${encodeURIComponent(runId)}` : ''}`,
+                          )
+                        }
                         className="flex items-center justify-between gap-4 rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-left text-sm transition hover:border-slate-600"
                       >
                         <span className="flex items-center gap-2 truncate text-slate-300">
@@ -514,6 +576,98 @@ export function DashboardPage() {
                 </table>
               </div>
             )}
+          </div>
+
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+            <div className="rounded-xl border border-slate-800 bg-slate-950 p-6 text-slate-100 lg:col-span-2">
+              <div className="mb-4 flex items-center justify-between">
+                <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
+                  Top Projects
+                </h3>
+                <button
+                  onClick={() => navigate('/settings')}
+                  className="text-xs font-medium text-sky-400 hover:text-sky-300"
+                >
+                  Manage projects
+                </button>
+              </div>
+              {topProjects.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-slate-800 p-6 text-sm text-slate-500">
+                  No project scan history yet.
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="border-b border-slate-800 text-left text-xs uppercase tracking-wide text-slate-500">
+                      <tr>
+                        <th className="px-4 py-2.5 font-medium">Project</th>
+                        <th className="px-4 py-2.5 font-medium">Latest Score</th>
+                        <th className="px-4 py-2.5 font-medium">Avg Score</th>
+                        <th className="px-4 py-2.5 font-medium">Runs</th>
+                        <th className="px-4 py-2.5 font-medium">Last Run</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800">
+                      {topProjects.map((project) => (
+                        <tr key={project.projectId} className="transition hover:bg-slate-900">
+                          <td className="px-4 py-3 font-medium text-slate-100">{project.name}</td>
+                          <td className="px-4 py-3">
+                            {project.latestScore === null ? (
+                              <span className="text-slate-500">-</span>
+                            ) : (
+                              <span
+                                className={`font-semibold ${
+                                  project.latestScore >= 85
+                                    ? 'text-emerald-400'
+                                    : project.latestScore >= 65
+                                      ? 'text-amber-300'
+                                      : 'text-rose-400'
+                                }`}
+                              >
+                                {project.latestScore}
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-slate-300">{project.avgScore}</td>
+                          <td className="px-4 py-3 text-slate-300">{project.runCount}</td>
+                          <td className="px-4 py-3 text-slate-500">
+                            {project.latestAt ? formatDate(project.latestAt) : '-'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            <div className="rounded-xl border border-slate-800 bg-slate-950 p-6 text-slate-100">
+              <h3 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-400">
+                Fleet Insights
+              </h3>
+              <div className="space-y-3 text-sm">
+                <div className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2">
+                  <div className="text-xs text-slate-500">Projects</div>
+                  <div className="text-xl font-semibold text-slate-100">{fleetInsights.totalProjects}</div>
+                </div>
+                <div className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2">
+                  <div className="text-xs text-slate-500">Configured Workspaces</div>
+                  <div className="text-xl font-semibold text-slate-100">{fleetInsights.totalWorkspaces}</div>
+                </div>
+                <div className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2">
+                  <div className="text-xs text-slate-500">Completed Runs</div>
+                  <div className="text-xl font-semibold text-slate-100">{fleetInsights.totalRuns}</div>
+                </div>
+                <div className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2">
+                  <div className="text-xs text-slate-500">Average Fleet Score</div>
+                  <div className="text-xl font-semibold text-slate-100">{fleetInsights.avgFleetScore}</div>
+                </div>
+                <div className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2">
+                  <div className="text-xs text-slate-500">Projects At Risk (&lt;65)</div>
+                  <div className="text-xl font-semibold text-rose-400">{fleetInsights.atRiskProjects}</div>
+                </div>
+              </div>
+            </div>
           </div>
         </>
       )}

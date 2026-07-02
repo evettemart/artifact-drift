@@ -24,26 +24,7 @@ import 'reactflow/dist/style.css';
 import { LoadingState } from '../components/LoadingSpinner';
 import { ErrorAlert } from '../components/ErrorAlert';
 import apiClient from '../lib/api';
-
-interface ProjectRow {
-  projectId: string;
-  name: string;
-}
-
-interface WorkspaceRow {
-  scanId: string;
-  projectId: string;
-  name?: string;
-  createdAt?: string;
-  selectedIntegrations?: string[];
-}
-
-interface DriftRunRow {
-  id: string;
-  label: string;
-  scanId?: string;
-  createdAt?: string | null;
-}
+import { useGlobalScope } from '../context/GlobalScopeContext';
 
 interface IntegrationTab {
   id: string;
@@ -156,41 +137,28 @@ function iconForType(typeValue: string): LucideIcon {
 
 export function GraphPage() {
   const [activeTab, setActiveTab] = useState<string>('planned');
-  const [projectId, setProjectId] = useState<string>('');
-  const [workspaceId, setWorkspaceId] = useState<string>('');
-  const [runId, setRunId] = useState<string>('');
-
-  const { data: projects = [] } = useQuery({
-    queryKey: ['projects'],
-    queryFn: async () => (await apiClient.getProjects()).data as ProjectRow[],
-  });
-
-  const { data: workspaces = [] } = useQuery({
-    queryKey: ['settings-scans', projectId],
-    queryFn: async () =>
-      (await apiClient.getSettingsScans({ projectId })).data as WorkspaceRow[],
-    enabled: Boolean(projectId),
-  });
-
-  const { data: runsData } = useQuery({
-    queryKey: ['drift-runs', workspaceId],
-    queryFn: async () =>
-      (await apiClient.getDriftRuns({ scanId: workspaceId })).data as { runs: DriftRunRow[] },
-    enabled: Boolean(workspaceId),
-  });
-
-  const runs = runsData?.runs ?? [];
+  const {
+    projectId,
+    setProjectId,
+    workspaceId,
+    setWorkspaceId,
+    runId,
+    setRunId,
+    projects,
+    workspaces,
+    runs,
+  } = useGlobalScope();
 
   const selectedWorkspace = useMemo(
     () => workspaces.find((workspace) => workspace.scanId === workspaceId) ?? null,
     [workspaces, workspaceId]
   );
 
-  const shouldLoadGraph = Boolean(projectId && workspaceId && runId);
+  const shouldLoadGraph = Boolean(projectId && workspaceId);
   const { data: graphData, isLoading, error } = useQuery({
     queryKey: ['graph', workspaceId, runId],
     queryFn: async () => {
-      const response = await apiClient.getGraph({ scanId: workspaceId, runId });
+      const response = await apiClient.getGraph({ scanId: workspaceId, runId: runId || undefined });
       return response.data;
     },
     enabled: shouldLoadGraph,
@@ -240,24 +208,6 @@ export function GraphPage() {
       setActiveTab(integrationTabs[0]?.id ?? 'planned');
     }
   }, [integrationTabs, activeTab]);
-
-  useEffect(() => {
-    if (!projectId) {
-      setWorkspaceId('');
-      setRunId('');
-      return;
-    }
-    if (workspaceId && !workspaces.some((w) => w.scanId === workspaceId)) {
-      setWorkspaceId('');
-      setRunId('');
-    }
-  }, [projectId, workspaces, workspaceId]);
-
-  useEffect(() => {
-    if (runId && !runs.some((run) => run.id === runId)) {
-      setRunId('');
-    }
-  }, [runId, runs]);
 
   const getNodeColor = (type: string) => {
     const normalized = normalizeType(type);
@@ -346,7 +296,7 @@ export function GraphPage() {
       <div className="rounded-xl border border-slate-800 bg-slate-950 p-6 text-slate-100">
         <h1 className="text-xl font-semibold">Architecture Graph</h1>
         <p className="mt-1 text-sm text-slate-400">
-          Select a project, workspace, and scan run to render the graph.
+          Select a project and workspace (plus optional run) to render the graph.
         </p>
 
         <div className="mt-4 grid gap-3 md:grid-cols-3">
@@ -414,7 +364,7 @@ export function GraphPage() {
 
       {!shouldLoadGraph && (
         <div className="rounded-xl border border-dashed border-slate-700 bg-slate-900/40 p-10 text-center text-sm text-slate-400">
-          Select project, workspace, and scan run to view graph data.
+          Select project and workspace to view graph data.
         </div>
       )}
 

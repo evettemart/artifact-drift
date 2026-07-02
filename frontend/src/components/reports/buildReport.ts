@@ -78,6 +78,10 @@ export interface BuildReportInput {
   integrations: Integration[];
 }
 
+interface BuildReportScopedInput extends BuildReportInput {
+  findings: ReportFinding[];
+}
+
 // Map a graph layer key to the integration layer that feeds it.
 const LAYER_BY_GRAPH: Record<keyof GraphData, Layer> = {
   planned: 'intent',
@@ -106,8 +110,32 @@ function nodeNameIndex(layer: GraphLayerData): Map<string, string> {
   return map;
 }
 
+function severityRank(severity: string): number {
+  switch (severity.toLowerCase()) {
+    case 'critical':
+      return 5;
+    case 'high':
+      return 4;
+    case 'medium':
+      return 3;
+    case 'low':
+      return 2;
+    case 'info':
+      return 1;
+    default:
+      return 0;
+  }
+}
+
+function tableCell(value: string | undefined | null): string {
+  return String(value ?? '')
+    .replace(/\|/g, '\\|')
+    .replace(/\n+/g, ' ')
+    .trim();
+}
+
 // Build the overview section: project, scan, scan-run timestamp, integrations.
-function buildOverviewSection(input: BuildReportInput): ReportSection {
+function buildOverviewSection(input: BuildReportScopedInput): ReportSection {
   const lines: string[] = [
     `- **Project:** ${input.projectName} (\`${input.projectId}\`)`,
     `- **Scan:** \`${input.scanId}\``,
@@ -136,7 +164,18 @@ function buildOverviewSection(input: BuildReportInput): ReportSection {
 
 // Build one section per scan-type graph (planned / terraform / deployed),
 // associating each with its integration source.
-function buildGraphSections(input: BuildReportInput, layers: Array<keyof GraphData>): ReportSection[] {
+function buildGraphSections(input: BuildReportScopedInput, layers: Array<keyof GraphData>): ReportSection[] {
+  const driftByResource = new Map<string, string>();
+  for (const finding of input.findings) {
+    const key = String(finding.logicalName ?? '').trim().toLowerCase();
+    if (!key) continue;
+    const sev = String(finding.severity ?? '').toLowerCase();
+    const current = driftByResource.get(key);
+    if (!current || severityRank(sev) > severityRank(current)) {
+      driftByResource.set(key, sev);
+    }
+  }
+
   return layers.map((layerKey) => {
     const layer = input.graph[layerKey];
     const sources = input.integrations.filter(
@@ -156,19 +195,29 @@ function buildGraphSections(input: BuildReportInput, layers: Array<keyof GraphDa
     if (layer.nodes.length) {
       lines.push('');
       lines.push('**Resources**');
+      lines.push('| Kind | Name | Drift |');
+      lines.push('| --- | --- | --- |');
       for (const node of layer.nodes) {
-        const drift = node.drifted ? ` — drift: ${node.driftSeverity ?? 'yes'}` : '';
-        lines.push(`- \`${node.kind}\` ${node.name}${drift}`);
+        const lookup = driftByResource.get(node.name.trim().toLowerCase());
+        const derived = lookup ? `Yes (${lookup.toUpperCase()})` : 'No';
+        const drift = node.drifted ? `Yes (${String(node.driftSeverity ?? lookup ?? 'detected').toUpperCase()})` : derived;
+        lines.push(
+          `| ${tableCell(node.kind)} | ${tableCell(node.name)} | ${tableCell(drift)} |`,
+        );
       }
     }
 
     if (layer.edges.length) {
       lines.push('');
       lines.push('**Relationships**');
+      lines.push('| From | Relationship | To |');
+      lines.push('| --- | --- | --- |');
       for (const edge of layer.edges) {
         const from = names.get(edge.source) ?? edge.source;
         const to = names.get(edge.target) ?? edge.target;
-        lines.push(`- ${from} —${edge.label}→ ${to}`);
+        lines.push(
+          `| ${tableCell(from)} | ${tableCell(edge.label)} | ${tableCell(to)} |`,
+        );
       }
     }
 
@@ -183,7 +232,7 @@ function buildGraphSections(input: BuildReportInput, layers: Array<keyof GraphDa
 }
 
 // Build one section per comparison (drift run) with its drifts + recommendations.
-function buildComparisonSections(input: BuildReportInput, runs: DriftRun[]): ReportSection[] {
+function buildComparisonSections(input: BuildReportScopedInput, runs: DriftRun[]): ReportSection[] {
   return runs.map((run) => {
     const drifts = input.findings.filter((f) => f.runId === run.id);
     const lines: string[] = [
@@ -195,21 +244,21 @@ function buildComparisonSections(input: BuildReportInput, runs: DriftRun[]): Rep
     if (drifts.length === 0) {
       lines.push('No drift detected for this comparison.');
     } else {
+      lines.push('| Drift ID | Severity | Resource | Summary | Likely Cause | Impact | Recommendation |');
+      lines.push('| --- | --- | --- | --- | --- | --- | --- |');
       for (const drift of drifts) {
-        const title = drift.reasoning?.summary ?? drift.diffSummary;
-        lines.push(`**${drift.driftId} · ${drift.severity.toUpperCase()} · ${drift.resourceType}**`);
-        lines.push(`- ${title}`);
-        if (drift.reasoning?.likelyCause) {
-          lines.push(`- **Likely cause:** ${drift.reasoning.likelyCause}`);
-        }
+        const title = tableCell(drift.reasoning?.summary ?? drift.diffSummary);
+        const likelyCause = tableCell(drift.reasoning?.likelyCause);
         const impact = drift.reasoning?.impact ?? drift.reasoning?.businessImpact;
-        if (impact) lines.push(`- **Impact:** ${impact}`);
+        const impactText = tableCell(impact);
         const recommendation =
           drift.reasoning?.recommendedAction ?? drift.reasoning?.terraformRemediation;
-        if (recommendation) {
-          lines.push(`- **Recommendation:** ${recommendation}`);
-        }
-        lines.push('');
+        const recommendationText = tableCell(recommendation);
+        lines.push(
+          `| ${tableCell(drift.driftId)} | ${tableCell(drift.severity.toUpperCase())} | ${tableCell(
+            `${drift.resourceType}${drift.logicalName ? ` (${drift.logicalName})` : ''}`,
+          )} | ${title} | ${likelyCause || '-'} | ${impactText || '-'} | ${recommendationText || '-'} |`,
+        );
       }
     }
 
@@ -229,6 +278,14 @@ export function buildReport(input: BuildReportInput): Report {
   const selectedRuns = isAll
     ? input.runs
     : input.runs.filter((run) => run.id === input.runId);
+  const scopedRunIds = new Set(selectedRuns.map((run) => run.id));
+  const scopedFindings = isAll
+    ? input.findings
+    : input.findings.filter((finding) => scopedRunIds.has(finding.runId));
+  const scopedInput: BuildReportScopedInput = {
+    ...input,
+    findings: scopedFindings,
+  };
 
   // Which graph layers to include: for a single comparison, just the two it
   // spans; for "all", every layer.
@@ -251,9 +308,9 @@ export function buildReport(input: BuildReportInput): Report {
     : `Architecture Drift — ${selectedRuns[0]?.baseLabel ?? ''} vs ${selectedRuns[0]?.targetLabel ?? ''}`;
 
   const sections: ReportSection[] = [
-    buildOverviewSection(input),
-    ...buildGraphSections(input, layerKeys),
-    ...buildComparisonSections(input, selectedRuns),
+    buildOverviewSection(scopedInput),
+    ...buildGraphSections(scopedInput, layerKeys),
+    ...buildComparisonSections(scopedInput, selectedRuns),
   ];
 
   return {

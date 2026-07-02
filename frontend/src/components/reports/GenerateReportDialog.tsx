@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { X, FileBarChart } from 'lucide-react';
 import { FORMAT_META, type ReportFormat } from './types';
 import type { DriftRun } from './buildReport';
@@ -7,15 +7,23 @@ const FORMATS: ReportFormat[] = ['html', 'pdf', 'json'];
 
 export function GenerateReportDialog({
   runs,
+  defaultRunId,
   onClose,
   onGenerate,
 }: {
   runs: DriftRun[];
+  defaultRunId?: string;
   onClose: () => void;
   onGenerate: (runId: string, format: ReportFormat) => void;
 }) {
   const [runId, setRunId] = useState('all');
   const [format, setFormat] = useState<ReportFormat>('html');
+
+  useEffect(() => {
+    if (defaultRunId) {
+      setRunId(defaultRunId);
+    }
+  }, [defaultRunId]);
 
   function submit() {
     onGenerate(runId, format);

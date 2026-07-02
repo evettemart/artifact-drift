@@ -7,19 +7,14 @@ import { DriftFilters } from '../components/drift/DriftFilters';
 import { DriftTable } from '../components/drift/DriftTable';
 import { DriftDetailDrawer } from '../components/drift/DriftDetailDrawer';
 import apiClient from '../lib/api';
+import { useGlobalScope } from '../context/GlobalScopeContext';
 import type {
   DriftCategory,
   DriftFilterState,
   DriftFinding,
-  DriftRun,
   DriftStatus,
 } from '../components/drift/types';
 import type { Severity } from '../lib/severity';
-
-interface ProjectRow {
-  projectId: string;
-  name: string;
-}
 interface ScanRow {
   scanId: string;
   projectId: string;
@@ -78,26 +73,19 @@ function layerLabel(layer: DriftLayer): string {
 
 export function DriftPage() {
   const [searchParams] = useSearchParams();
+  const {
+    projectId,
+    setProjectId,
+    workspaceId,
+    setWorkspaceId,
+    runId,
+    setRunId,
+    projects,
+    workspaces,
+    runs,
+  } = useGlobalScope();
 
-  const { data: projectsData } = useQuery({
-    queryKey: ['projects'],
-    queryFn: async () => (await apiClient.getProjects()).data as ProjectRow[],
-  });
-  const [projectId, setProjectId] = useState<string>();
-  const [scanId, setScanId] = useState<string>();
-  const [runId, setRunId] = useState<string>();
-
-  const { data: scansData = [] } = useQuery({
-    queryKey: ['settings-scans', projectId],
-    queryFn: async () =>
-      (await apiClient.getSettingsScans({ projectId: projectId as string })).data as ScanRow[],
-    enabled: Boolean(projectId),
-  });
-  const { data: runsData } = useQuery({
-    queryKey: ['drift-runs', scanId],
-    queryFn: async () => (await apiClient.getDriftRuns({ scanId })).data as { runs: DriftRun[] },
-    enabled: Boolean(scanId),
-  });
+  const scanId = workspaceId || undefined;
 
   // When a specific run is selected, fetch its findings directly by run scanId.
   // Otherwise fall back to the workspace scanId (resolves to the latest run).
@@ -109,12 +97,10 @@ export function DriftPage() {
     enabled: Boolean(findingsScopeId),
   });
 
-  const projects = projectsData ?? [];
-  const scans = scansData ?? [];
-  const runs = runsData?.runs ?? [];
+  const scans = workspaces as ScanRow[];
   const findings = useMemo(() => {
     const raw = findingsData?.findings ?? [];
-    const fallbackScanId = findingsData?.scanId ?? scansData?.[0]?.scanId ?? '';
+    const fallbackScanId = findingsData?.scanId ?? workspaces?.[0]?.scanId ?? '';
     return raw.map((finding) => {
       const comparison = comparisonFromType(String(finding.driftType ?? ''));
       return {
@@ -132,40 +118,13 @@ export function DriftPage() {
           },
       } as DriftFinding;
     });
-  }, [findingsData, scansData]);
+  }, [findingsData, workspaces]);
 
   const [filters, setFilters] = useState<DriftFilterState>(EMPTY_FILTERS);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [statusOverrides, setStatusOverrides] = useState<Record<string, DriftStatus>>({});
   const [deepLinkApplied, setDeepLinkApplied] = useState(false);
 
-  // Default selections once data loads.
-  useEffect(() => {
-    if (!projectId && projects.length) setProjectId(projects[0].projectId);
-  }, [projectId, projects]);
-
-  useEffect(() => {
-    if (!projectId) {
-      setScanId(undefined);
-      setRunId(undefined);
-      return;
-    }
-    if (scans.length === 0) {
-      setScanId(undefined);
-      setRunId(undefined);
-      return;
-    }
-    if (!scanId || !scans.some((s) => s.scanId === scanId)) {
-      setScanId(scans[0].scanId);
-      setRunId(undefined);
-    }
-  }, [projectId, scans, scanId]);
-
-  useEffect(() => {
-    if (runId && !runs.some((r) => r.id === runId)) {
-      setRunId(undefined);
-    }
-  }, [runId, runs]);
   // Seed severity/category filters from ?severity= / ?category= deep links
   // (dashboard stat cards and the drift-by-type chart).
   useEffect(() => {
@@ -250,24 +209,24 @@ export function DriftPage() {
       <div className="mt-6">
         <DriftFilters
           projects={projects}
-          projectId={projectId}
+          projectId={projectId || undefined}
           onProjectChange={(id) => {
-            setProjectId(id || undefined);
-            setScanId(undefined);
-            setRunId(undefined);
+            setProjectId(id || '');
+            setWorkspaceId('');
+            setRunId('');
             setSelectedId(null);
           }}
           scans={scans}
           scanId={scanId}
           onScanChange={(id) => {
-            setScanId(id || undefined);
-            setRunId(undefined);
+            setWorkspaceId(id || '');
+            setRunId('');
             setSelectedId(null);
           }}
           runs={runs}
-          runId={runId}
+          runId={runId || undefined}
           onRunChange={(id) => {
-            setRunId(id || undefined);
+            setRunId(id || '');
             setSelectedId(null);
           }}
           filters={filters}

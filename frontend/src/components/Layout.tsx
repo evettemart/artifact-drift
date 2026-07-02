@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Activity, BarChart3, FileText, Network, PlayCircle, Plug, Settings2 } from 'lucide-react';
 import { Logo } from './Logo';
 import apiClient from '../lib/api';
+import { useGlobalScope } from '../context/GlobalScopeContext';
 
 interface LayoutProps {
   children: ReactNode;
@@ -11,32 +12,28 @@ interface LayoutProps {
 
 const NAV_ITEMS = [
   { path: '/', label: 'Dashboard', icon: BarChart3 },
-  { path: '/scans', label: 'Scans', icon: PlayCircle },
   { path: '/settings', label: 'Projects', icon: Settings2 },
-  { path: '/drift', label: 'Drift', icon: Activity },
+  { path: '/scans', label: 'Scans', icon: PlayCircle },
   { path: '/graph', label: 'Graph', icon: Network },
+  { path: '/drift', label: 'Drift', icon: Activity },
   { path: '/integrations', label: 'Integrations', icon: Plug },
   { path: '/reports', label: 'Reports', icon: FileText },
 ];
 
 export function Layout({ children }: LayoutProps) {
   const location = useLocation();
-
-  const { data: projectsData } = useQuery({
-    queryKey: ['projects'],
-    queryFn: async () => {
-      const response = await apiClient.getProjects();
-      return response.data;
-    },
-  });
-
-  const { data: scansData } = useQuery({
-    queryKey: ['scans'],
-    queryFn: async () => {
-      const response = await apiClient.getScans({ limit: 1 });
-      return response.data;
-    },
-  });
+  const {
+    projectId,
+    setProjectId,
+    workspaceId,
+    setWorkspaceId,
+    runId,
+    setRunId,
+    projects,
+    workspaces,
+    runs,
+    selectedWorkspace,
+  } = useGlobalScope();
 
   const { data: healthData } = useQuery({
     queryKey: ['health'],
@@ -48,15 +45,9 @@ export function Layout({ children }: LayoutProps) {
 
   const demoMode = healthData?.demoMode ?? false;
 
-  const currentProject =
-    Array.isArray(projectsData) && projectsData.length > 0 ? projectsData[0] : null;
-  const latestScan =
-    Array.isArray(scansData) && scansData.length > 0 ? scansData[0] : null;
-
-  const projectName = currentProject?.name || 'Drifters';
-  const scanLabel = latestScan
-    ? `Run · ${new Date(latestScan.startedAt).toLocaleString()}`
-    : 'No scans yet';
+  const selectedRun = runs.find((run) => run.id === runId) ?? null;
+  const selectClass =
+    'rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-xs text-gray-700 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/20 disabled:opacity-60';
 
   return (
     <div className="flex min-h-screen bg-gray-50">
@@ -108,20 +99,53 @@ export function Layout({ children }: LayoutProps) {
 
       {/* Main column */}
       <div className="flex flex-1 flex-col">
-        {/* Topbar: project + scan context */}
+        {/* Topbar: global project/workspace/run context */}
         <header className="flex items-center justify-between border-b border-gray-200 bg-white px-6 py-3">
-          <div className="flex items-center gap-3 text-sm">
-            <span className="flex items-center gap-2 rounded-md border border-gray-200 px-3 py-1.5 font-medium text-gray-900">
-              <span className="h-2 w-2 rounded-full bg-emerald-500" />
-              {projectName}
-            </span>
-            <span className="text-gray-300">/</span>
-            <span className="rounded-md border border-gray-200 px-3 py-1.5 text-gray-600">
-              {scanLabel}
-            </span>
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <select
+              value={projectId}
+              onChange={(event) => setProjectId(event.target.value)}
+              className={selectClass}
+            >
+              <option value="">Project</option>
+              {projects.map((project) => (
+                <option key={project.projectId} value={project.projectId}>
+                  {project.name}
+                </option>
+              ))}
+            </select>
+            <select
+              value={workspaceId}
+              onChange={(event) => setWorkspaceId(event.target.value)}
+              className={selectClass}
+              disabled={!projectId}
+            >
+              <option value="">Workspace</option>
+              {workspaces.map((workspace) => (
+                <option key={workspace.scanId} value={workspace.scanId}>
+                  {workspace.name || workspace.scanId}
+                </option>
+              ))}
+            </select>
+            <select
+              value={runId}
+              onChange={(event) => setRunId(event.target.value)}
+              className={selectClass}
+              disabled={!workspaceId}
+            >
+              <option value="">Run (all comparisons)</option>
+              {runs.map((run) => (
+                <option key={run.id} value={run.id}>
+                  {run.label}
+                </option>
+              ))}
+            </select>
           </div>
-          {latestScan && (
-            <span className="font-mono text-xs text-gray-400">scan: {latestScan.scanId}</span>
+          {selectedWorkspace && (
+            <span className="font-mono text-xs text-gray-400">
+              workspace: {selectedWorkspace.scanId}
+              {selectedRun ? ` · run: ${selectedRun.id}` : ''}
+            </span>
           )}
         </header>
 

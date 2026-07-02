@@ -1,214 +1,328 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Download, FileText, FileJson, Eye } from 'lucide-react';
+import { FileBarChart } from 'lucide-react';
 import { LoadingState } from '../components/LoadingSpinner';
 import { ErrorAlert } from '../components/ErrorAlert';
 import apiClient from '../lib/api';
+import { GenerateReportDialog } from '../components/reports/GenerateReportDialog';
+import { ReportPreview } from '../components/reports/ReportPreview';
+import { ReportsList } from '../components/reports/ReportsList';
+import { buildReport, type GraphData, type GraphLayerData, type ReportFinding } from '../components/reports/buildReport';
+import type { Report, ReportFormat } from '../components/reports/types';
+import { useGlobalScope } from '../context/GlobalScopeContext';
+
+interface CompletedScanRow {
+  scanId: string;
+  projectId: string;
+  startedAt?: string;
+  completedAt?: string;
+  complianceScore?: number;
+}
+
+interface DriftRunRow {
+  id: string;
+  scanId: string;
+  baseLayer: string;
+  targetLayer: string;
+  baseLabel: string;
+  targetLabel: string;
+  label: string;
+  total: number;
+  summary: Record<string, number>;
+}
+
+function runKey(base: 'planned' | 'terraform' | 'deployed', target: 'planned' | 'terraform' | 'deployed') {
+  return `${base}__${target}`;
+}
+
+function comparisonFromType(
+  driftType: string,
+): { base: 'planned' | 'terraform' | 'deployed'; target: 'planned' | 'terraform' | 'deployed' } {
+  switch (driftType) {
+    case 'missing':
+    case 'relationship_broken':
+    case 'edge':
+    case 'design':
+      return { base: 'planned', target: 'deployed' };
+    case 'version_mismatch':
+      return { base: 'planned', target: 'terraform' };
+    default:
+      return { base: 'terraform', target: 'deployed' };
+  }
+}
+
+function normalizeFindings(raw: any[], fallbackScanId: string, runs: DriftRunRow[]): ReportFinding[] {
+  const runByScanId = new Map<string, DriftRunRow>();
+  const runByComparison = new Map<string, DriftRunRow>();
+  for (const run of runs) {
+    if (run?.scanId) runByScanId.set(String(run.scanId), run);
+    const key = runKey(
+      String(run.baseLayer) as 'planned' | 'terraform' | 'deployed',
+      String(run.targetLayer) as 'planned' | 'terraform' | 'deployed',
+    );
+    runByComparison.set(key, run);
+  }
+
+  return raw.map((finding) => {
+    const resolvedScanId = String(finding?.scanId ?? fallbackScanId);
+    const comparison = comparisonFromType(String(finding?.driftType ?? ''));
+    const comparisonKey = runKey(comparison.base, comparison.target);
+    const linkedRunId =
+      finding?.runId ||
+      runByScanId.get(resolvedScanId)?.id ||
+      runByComparison.get(comparisonKey)?.id ||
+      comparisonKey;
+    return {
+      driftId: String(finding?.driftId ?? ''),
+      driftType: String(finding?.driftType ?? ''),
+      severity: String(finding?.severity ?? 'info'),
+      diffSummary: String(finding?.diffSummary ?? ''),
+      logicalName: String(finding?.logicalName ?? ''),
+      resourceType: String(finding?.resourceType ?? ''),
+      region: finding?.region ? String(finding.region) : undefined,
+      runId: String(linkedRunId),
+      category: String(finding?.category ?? 'attribute'),
+      comparison: finding?.comparison,
+      reasoning: finding?.reasoning,
+      scanId: resolvedScanId,
+    } as ReportFinding;
+  });
+}
+
+function normalizeGraphLayer(layer: any): GraphLayerData {
+  const nodes = Array.isArray(layer?.nodes)
+    ? layer.nodes.map((node: any) => ({
+        id: String(node?.id ?? ''),
+        name: String(node?.name ?? node?.label ?? node?.id ?? ''),
+        kind: String(node?.kind ?? node?.type ?? 'resource'),
+        type: String(node?.type ?? node?.kind ?? 'resource'),
+        drifted: Boolean(node?.drifted),
+        driftSeverity: node?.driftSeverity ?? null,
+      }))
+    : [];
+
+  const edges = Array.isArray(layer?.edges)
+    ? layer.edges.map((edge: any) => ({
+        id: String(edge?.id ?? `${edge?.source ?? ''}_${edge?.target ?? ''}`),
+        source: String(edge?.source ?? ''),
+        target: String(edge?.target ?? ''),
+        label: String(edge?.label ?? edge?.relationshipType ?? 'related'),
+      }))
+    : [];
+
+  return { nodes, edges };
+}
 
 export function ReportsPage() {
-  const [selectedFormat, setSelectedFormat] = useState<'html' | 'json'>('html');
-  const [previewMode, setPreviewMode] = useState(false);
+  const [selectedReportId, setSelectedReportId] = useState<string>();
+  const [showGenerateDialog, setShowGenerateDialog] = useState(false);
+  const [reports, setReports] = useState<Report[]>([]);
+  const {
+    projectId,
+    workspaceId,
+    runId,
+    selectedProject,
+    selectedWorkspace,
+    runs: globalRuns,
+  } = useGlobalScope();
 
-  // Fetch scans for selection
-  const { data: scansData, isLoading: scansLoading, error: scansError } = useQuery({
+  const { data: scansData } = useQuery({
     queryKey: ['scans'],
-    queryFn: async () => {
-      const response = await apiClient.getScans();
-      return response.data;
-    },
+    queryFn: async () => (await apiClient.getScans()).data as CompletedScanRow[],
+  });
+  const scans = Array.isArray(scansData) ? scansData : [];
+
+  const { data: runsData, isLoading: runsLoading, error: runsError } = useQuery({
+    queryKey: ['drift-runs', workspaceId],
+    queryFn: async () => (await apiClient.getDriftRuns({ scanId: workspaceId })).data as { runs: DriftRunRow[] },
+    enabled: Boolean(workspaceId),
   });
 
-  // Fetch report data
-  const { data: reportData, isLoading: reportLoading, error } = useQuery({
-    queryKey: ['report', selectedFormat],
-    queryFn: async () => {
-      const response = await apiClient.getReport({ format: selectedFormat });
-      return response.data;
-    },
-    enabled: previewMode,
+  const runs = Array.isArray(runsData?.runs) ? runsData.runs : globalRuns;
+  const selectedRun = runId ? runs.find((run) => run.id === runId) ?? null : null;
+  const findingsScopeId = selectedRun?.scanId || workspaceId;
+
+  const { data: findingsData, isLoading: findingsLoading, error: findingsError } = useQuery({
+    queryKey: ['findings', findingsScopeId, runId],
+    queryFn: async () =>
+      (await apiClient.getFindings({ scanId: findingsScopeId })).data as {
+        scanId: string;
+        findings: any[];
+      },
+    enabled: Boolean(findingsScopeId),
   });
 
-  const scans = Array.isArray(scansData)
-    ? scansData
-    : Array.isArray(scansData?.scans)
-      ? scansData.scans
-      : [];
-  const latestScan = scans[0];
+  const { data: graphData, isLoading: graphLoading, error: graphError } = useQuery({
+    queryKey: ['graph', workspaceId, runId],
+    queryFn: async () => (await apiClient.getGraph({ scanId: workspaceId, runId: runId || undefined })).data,
+    enabled: Boolean(workspaceId),
+  });
 
-  const handleDownload = async (format: 'html' | 'json') => {
-    try {
-      const response = await apiClient.getReport({ format });
-      const data = response.data;
+  const { data: integrationsData } = useQuery({
+    queryKey: ['integrations', projectId],
+    queryFn: async () => (await apiClient.getIntegrations({ projectId })).data,
+    enabled: Boolean(projectId),
+  });
 
-      let blob: Blob;
-      let filename: string;
+  const resolvedScanId = findingsData?.scanId ?? findingsScopeId ?? workspaceId;
+  const selectedCompletedScan = scans.find((scan) => scan.scanId === resolvedScanId) ?? null;
 
-      if (format === 'html') {
-        // For HTML, we need to get the HTML string
-        const htmlResponse = await fetch(`http://localhost:3001/api/report?format=html`);
-        const htmlText = await htmlResponse.text();
-        blob = new Blob([htmlText], { type: 'text/html' });
-        filename = `drifters-report-${new Date().toISOString().split('T')[0]}.html`;
-      } else {
-        blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-        filename = `drifters-report-${new Date().toISOString().split('T')[0]}.json`;
-      }
-
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-    } catch (error) {
-      console.error('Download failed:', error);
-    }
+  const findings = normalizeFindings(
+    Array.isArray(findingsData?.findings) ? findingsData.findings : [],
+    resolvedScanId,
+    runs,
+  );
+  const projectName = selectedProject?.name ?? (projectId || 'Unknown Project');
+  const graph: GraphData = {
+    planned: normalizeGraphLayer((graphData as any)?.planned),
+    terraform: normalizeGraphLayer((graphData as any)?.terraform),
+    deployed: normalizeGraphLayer((graphData as any)?.deployed),
   };
+  const selectedReport = reports.find((report) => report.id === selectedReportId);
+
+  function handleGenerate(runId: string, format: ReportFormat) {
+    if (!workspaceId) {
+      return;
+    }
+
+    const report = buildReport({
+      format,
+      runId,
+      projectId: projectId || 'unknown-project',
+      projectName,
+      scanId: resolvedScanId,
+      scanRunAt:
+        selectedCompletedScan?.startedAt ??
+        selectedCompletedScan?.completedAt ??
+        new Date().toISOString(),
+      complianceScore: selectedCompletedScan?.complianceScore,
+      runs,
+      findings,
+      graph,
+      integrations: Array.isArray(integrationsData) ? integrationsData : [],
+    });
+
+    setReports((prev) => [report, ...prev]);
+    setSelectedReportId(report.id);
+  }
+
+  function handleDeleteReport(id: string) {
+    setReports((prev) => {
+      const next = prev.filter((report) => report.id !== id);
+      setSelectedReportId((current) => (current === id ? next[0]?.id : current));
+      return next;
+    });
+  }
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="rounded-xl border border-slate-800 bg-slate-950 p-6 text-slate-100">
-        <h1 className="text-xl font-semibold">Reports</h1>
-        <p className="mt-1 text-sm text-slate-400">
-          Generate and download drift analysis reports
-        </p>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h1 className="text-xl font-semibold">Reports</h1>
+            <p className="mt-1 text-sm text-slate-400">
+              Generate architecture drift reports from scan runs and download in HTML, PDF, or JSON.
+            </p>
+          </div>
+          <button
+            onClick={() => setShowGenerateDialog(true)}
+            disabled={!workspaceId}
+            className="inline-flex items-center gap-2 rounded-md bg-sky-600 px-3 py-2 text-sm font-medium text-white hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <FileBarChart className="h-4 w-4" />
+            Generate report
+          </button>
+        </div>
       </div>
 
-      {/* Report Configuration */}
       <div className="rounded-xl border border-slate-800 bg-slate-950 p-6 text-slate-100">
         <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-300">Report Configuration</h2>
 
-        {scansError && (
+        {runsError && (
           <div className="mb-4">
             <ErrorAlert
-              title="Failed to load scans"
-              message={(scansError as any)?.message || 'Could not load scans for report generation.'}
+              title="Failed to load drift runs"
+              message={(runsError as any)?.message || 'Could not load drift runs for this scan.'}
+            />
+          </div>
+        )}
+
+        {(findingsError || graphError) && (
+          <div className="mb-4">
+            <ErrorAlert
+              title="Some report sources failed to load"
+              message={
+                (findingsError as any)?.message ||
+                (graphError as any)?.message ||
+                'Findings or graph data could not be loaded.'
+              }
             />
           </div>
         )}
         
         <div className="space-y-4">
-          {/* Scan Selection */}
-          <div>
-            <label className="block text-sm font-medium text-slate-300 mb-2">
-              Select Scan
-            </label>
-            <select
-              className="w-full rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/30 disabled:opacity-60"
-              disabled
-            >
-              {scansLoading ? (
-                <option>Loading scans...</option>
-              ) : latestScan ? (
-                <option>
-                  {new Date(latestScan.startedAt).toLocaleString()} - Score: {latestScan.complianceScore}/100
-                </option>
-              ) : (
-                <option>No scans available</option>
-              )}
-            </select>
-          </div>
-
-          {/* Format Selection */}
-          <div>
-            <label className="block text-sm font-medium text-slate-300 mb-2">
-              Report Format
-            </label>
-            <div className="grid grid-cols-2 gap-4">
-              <button
-                onClick={() => setSelectedFormat('html')}
-                className={`flex items-center justify-center px-4 py-3 border-2 rounded-lg transition-colors ${
-                  selectedFormat === 'html'
-                    ? 'border-sky-500 bg-sky-500/10 text-sky-300'
-                    : 'border-slate-700 text-slate-300 hover:border-slate-600'
-                }`}
-              >
-                <FileText className="h-5 w-5 mr-2" />
-                HTML Report
-              </button>
-              <button
-                onClick={() => setSelectedFormat('json')}
-                className={`flex items-center justify-center px-4 py-3 border-2 rounded-lg transition-colors ${
-                  selectedFormat === 'json'
-                    ? 'border-sky-500 bg-sky-500/10 text-sky-300'
-                    : 'border-slate-700 text-slate-300 hover:border-slate-600'
-                }`}
-              >
-                <FileJson className="h-5 w-5 mr-2" />
-                JSON Report
-              </button>
+          {!workspaceId && (
+            <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
+              Select a project and workspace from the global top bar to generate reports.
             </div>
-          </div>
+          )}
 
-          {/* Actions */}
-          <div className="flex space-x-4 pt-4">
-            <button
-              onClick={() => setPreviewMode(!previewMode)}
-              disabled={!latestScan}
-              className="flex-1 inline-flex items-center justify-center rounded-md border border-slate-700 bg-slate-900 px-4 py-2 text-sm font-medium text-slate-200 hover:border-slate-600 focus:outline-none focus:ring-2 focus:ring-sky-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <Eye className="h-4 w-4 mr-2" />
-              {previewMode ? 'Hide Preview' : 'Preview Report'}
-            </button>
-            <button
-              onClick={() => handleDownload(selectedFormat)}
-              disabled={!latestScan}
-              className="flex-1 inline-flex items-center justify-center rounded-md bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <Download className="h-4 w-4 mr-2" />
-              Download {selectedFormat.toUpperCase()}
-            </button>
+          <div className="rounded-lg border border-slate-800 bg-slate-900/40 p-4 text-sm text-slate-300">
+            <div className="grid gap-2 md:grid-cols-2">
+              <p>
+                <span className="text-slate-500">Project:</span> {projectName}
+              </p>
+              <p>
+                <span className="text-slate-500">Workspace:</span>{' '}
+                {selectedWorkspace?.name || workspaceId || '-'}
+              </p>
+              <p>
+                <span className="text-slate-500">Selected run:</span> {runId || 'All comparisons'}
+              </p>
+              <p>
+                <span className="text-slate-500">Resolved scan:</span> {resolvedScanId || '-'}
+              </p>
+              <p>
+                <span className="text-slate-500">Findings:</span> {findings.length}
+              </p>
+              <p>
+                <span className="text-slate-500">Graph nodes:</span>{' '}
+                {graph.planned.nodes.length + graph.terraform.nodes.length + graph.deployed.nodes.length}
+              </p>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Preview */}
-      {previewMode && (
-        <div className="rounded-xl border border-slate-800 bg-slate-950 text-slate-100">
-          <div className="px-6 py-4 border-b border-slate-800">
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-300">Report Preview</h2>
+      {runsLoading || findingsLoading || graphLoading ? (
+        <div className="rounded-xl border border-slate-800 bg-slate-950 p-6">
+          <LoadingState message="Loading report data..." />
+        </div>
+      ) : (
+        <div className="grid gap-6 lg:grid-cols-[340px_1fr]">
+          <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
+            <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-300">Generated Reports</h2>
+            <ReportsList
+              reports={reports}
+              selectedId={selectedReportId}
+              onSelect={setSelectedReportId}
+              onDelete={handleDeleteReport}
+            />
           </div>
-          <div className="p-6">
-            {reportLoading ? (
-              <LoadingState message="Loading preview..." />
-            ) : error ? (
-              <ErrorAlert
-                title="Failed to load preview"
-                message={(error as any)?.message || 'An error occurred while loading the preview'}
-              />
-            ) : selectedFormat === 'html' ? (
-              <div className="border border-slate-700 rounded-lg overflow-hidden bg-white">
-                <iframe
-                  srcDoc={reportData}
-                  className="w-full h-[600px]"
-                  title="Report Preview"
-                  sandbox="allow-same-origin"
-                />
-              </div>
-            ) : (
-              <div className="bg-slate-900 text-slate-100 p-4 rounded-lg overflow-x-auto border border-slate-800">
-                <pre className="text-sm">
-                  <code>{JSON.stringify(reportData, null, 2)}</code>
-                </pre>
-              </div>
-            )}
+          <div className="min-h-[520px]">
+            <ReportPreview report={selectedReport} />
           </div>
         </div>
       )}
 
-      {/* Report Information */}
-      <div className="rounded-xl border border-sky-500/20 bg-sky-500/5 p-6">
-        <h3 className="text-sm font-semibold text-sky-300 mb-2">About Reports</h3>
-        <ul className="text-sm text-slate-300 space-y-1">
-          <li>• HTML reports provide a formatted, human-readable view of findings</li>
-          <li>• JSON reports contain structured data for programmatic processing</li>
-          <li>• Reports include compliance scores, findings, and remediation steps</li>
-          <li>• All sensitive data is automatically redacted in reports</li>
-        </ul>
-      </div>
+      {showGenerateDialog && (
+        <GenerateReportDialog
+          runs={runs}
+          defaultRunId={runId || undefined}
+          onClose={() => setShowGenerateDialog(false)}
+          onGenerate={handleGenerate}
+        />
+      )}
     </div>
   );
 }

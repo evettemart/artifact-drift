@@ -41,6 +41,7 @@ export function SimpleMarkdown({ text }: { text: string }) {
   const blocks: React.ReactNode[] = [];
   const lines = text.split('\n');
   let bullets: string[] = [];
+  let tableLines: string[] = [];
   let key = 0;
 
   const flushBullets = () => {
@@ -57,12 +58,69 @@ export function SimpleMarkdown({ text }: { text: string }) {
     }
   };
 
+  const flushTable = () => {
+    if (!tableLines.length) return;
+    const rows = [...tableLines];
+    tableLines = [];
+
+    if (rows.length < 2) {
+      return;
+    }
+
+    const parseCells = (row: string) =>
+      row
+        .trim()
+        .replace(/^\|/, '')
+        .replace(/\|$/, '')
+        .split('|')
+        .map((cell) => cell.trim().replace(/\\\|/g, '|'));
+
+    const header = parseCells(rows[0]);
+    const bodyRows = rows
+      .slice(2)
+      .map(parseCells)
+      .filter((r) => r.length > 0);
+
+    blocks.push(
+      <div key={`tbl-${key++}`} className="my-2 overflow-x-auto rounded-lg border border-slate-800">
+        <table className="w-full text-left text-xs">
+          <thead className="bg-slate-900 text-slate-400">
+            <tr>
+              {header.map((cell, idx) => (
+                <th key={idx} className="px-2.5 py-2 font-medium uppercase tracking-wide">
+                  {renderInline(cell, `th-${key}-${idx}`)}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-800 bg-slate-900/40 text-slate-300">
+            {bodyRows.map((row, rowIdx) => (
+              <tr key={rowIdx}>
+                {header.map((_, colIdx) => (
+                  <td key={colIdx} className="align-top px-2.5 py-2">
+                    {renderInline(row[colIdx] ?? '', `td-${key}-${rowIdx}-${colIdx}`)}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>,
+    );
+  };
+
   for (const line of lines) {
     const trimmed = line.trim();
     const bullet = trimmed.match(/^[-*]\s+(.*)$/);
-    if (bullet) {
+    const tableLike = /^\|.*\|$/.test(trimmed);
+    if (tableLike) {
+      flushBullets();
+      tableLines.push(trimmed);
+    } else if (bullet) {
+      flushTable();
       bullets.push(bullet[1]);
     } else {
+      flushTable();
       flushBullets();
       if (trimmed) {
         blocks.push(
@@ -73,6 +131,7 @@ export function SimpleMarkdown({ text }: { text: string }) {
       }
     }
   }
+  flushTable();
   flushBullets();
 
   return <div className="text-sm leading-relaxed">{blocks}</div>;
